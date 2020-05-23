@@ -1,5 +1,4 @@
 use web_sys::*;
-use js_sys;
 use std::collections::HashMap;
 
 type Ctx = WebGlRenderingContext;
@@ -117,7 +116,7 @@ impl GlState {
         ctx.buffer_data_with_u8_array(Ctx::ELEMENT_ARRAY_BUFFER, data, Ctx::STATIC_DRAW);
 
         self.element_buffer = Some(buffer);
-        self.element_buffer_size = data.len();
+        self.element_buffer_size = data.len() / 2; // assuming UNSIGNED_SHORTS
         Some(self)
     }
 
@@ -151,12 +150,11 @@ impl GlState {
         self.setup_attributes(ctx, &program.attributes)?;
         self.setup_uniforms(ctx, &program.uniforms, uni_values)?;
 
-        ctx.draw_arrays(Ctx::TRIANGLES, 0, 3 as i32);
-        // ctx.draw_elements_with_i32(
-        //     Ctx::TRIANGLES,
-        //     self.element_buffer_size as i32,
-        //     Ctx::UNSIGNED_SHORT,
-        //     0);
+        ctx.draw_elements_with_i32(
+            Ctx::TRIANGLES,
+            self.element_buffer_size as i32,
+            Ctx::UNSIGNED_SHORT,
+            0);
 
         Some(self)
     }

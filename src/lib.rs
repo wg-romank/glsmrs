@@ -37,12 +37,9 @@ pub fn alter_start(ctx: &WebGlRenderingContext) -> Result<(), &'static str> {
     ];
     let indices: [u8; 6] = [0, 1, 2, 2, 3, 0];
 
-    let vb: Vec<u8> = vertices.into_iter().flat_map(|v| v.to_ne_bytes().to_vec()).collect();
-    let eb: Vec<u8> = indices.into_iter().flat_map(|e| e.to_ne_bytes().to_vec()).collect();
-
     let vertices: [f32; 9] = [-0.7, -0.7, 0.0, 0.7, -0.7, 0.0, 0.0, 0.7, 0.0];
     let vb: Vec<u8> = vertices.into_iter().flat_map(|v| v.to_ne_bytes().to_vec()).collect();
-    let indices: [u8; 3] = [0, 1, 2];
+    let indices: [u16; 3] = [0, 1, 2];
     let eb: Vec<u8> = indices.into_iter().flat_map(|e| e.to_ne_bytes().to_vec()).collect();
 
     state
