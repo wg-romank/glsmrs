@@ -124,6 +124,7 @@ impl GlState {
         Ok(self)
     }
 
+    // todo: should be put to run & draw?
     pub fn element_buffer(&mut self, ctx: &Ctx, data: &[u8]) -> Result<&mut Self, String> {
         let buffer = ctx.create_buffer().ok_or("Failed to create element buffer")?;
         ctx.bind_buffer(Ctx::ELEMENT_ARRAY_BUFFER, Some(&buffer));
@@ -131,6 +132,35 @@ impl GlState {
 
         self.element_buffer = Some(buffer);
         self.element_buffer_size = data.len() / 2; // assuming UNSIGNED_SHORTS
+        Ok(self)
+    }
+
+    pub fn texturef(&mut self, ctx: &Ctx, name: &'static str, data: &[f32], w: u32, h: u32) -> Result<&mut Self, String> {
+        let tex = ctx.create_texture().ok_or(format!("Failed to create texture for {}", name))?;
+        ctx.bind_texture(Ctx::TEXTURE_2D, Some(&tex));
+
+        unsafe {
+            let data_array = js_sys::Float32Array::view(&data);
+
+            ctx.tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_array_buffer_view(
+                Ctx::TEXTURE_2D,
+                0,
+                Ctx::RGBA as i32,
+                w as i32,
+                h as i32,
+                0,
+                Ctx::RGBA,
+                Ctx::FLOAT,
+                Some(&data_array)
+            ).map_err(|e| format!("Failed to send image data for {} {:?}", name, e))?;
+        };
+
+        ctx.tex_parameteri(Ctx::TEXTURE_2D, Ctx::TEXTURE_MIN_FILTER, Ctx::NEAREST as i32);
+        ctx.tex_parameteri(Ctx::TEXTURE_2D, Ctx::TEXTURE_MAG_FILTER, Ctx::NEAREST as i32);
+        ctx.tex_parameteri(Ctx::TEXTURE_2D, Ctx::TEXTURE_WRAP_T, Ctx::CLAMP_TO_EDGE as i32);
+        ctx.tex_parameteri(Ctx::TEXTURE_2D, Ctx::TEXTURE_WRAP_S, Ctx::CLAMP_TO_EDGE as i32);
+
+        self.textures.insert(name, tex);
         Ok(self)
     }
 
@@ -145,7 +175,7 @@ impl GlState {
             h as i32,
             0,
             Ctx::RGBA,
-            Ctx::FLOAT,
+            Ctx::UNSIGNED_BYTE,
             Some(data)
         ).map_err(|e| format!("Failed to send image data for {} {:?}", name, e))?;
 

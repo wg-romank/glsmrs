@@ -20,7 +20,9 @@ pub fn alter_start(ctx: &WebGlRenderingContext) -> Result<(), String> {
         ctx,
         include_str!("../shaders/dummy.vert"),
         include_str!("../shaders/dummy.frag"),
-        vec![],
+        vec![
+            gl::UniformDescription { name: "tex", location: None, t: gl::UniformType::Sampler2D }
+        ],
         vec![
             gl::AttributeDescription { name: "position", location: None, t: gl::AttributeType::Vector(2) },
             // gl::AttributeDescription { name: "uv", location: None, t: gl::AttributeType::Vector(2) }
@@ -49,13 +51,21 @@ pub fn alter_start(ctx: &WebGlRenderingContext) -> Result<(), String> {
     // let indices: [u16; 3] = [0, 1, 2];
     let eb: Vec<u8> = indices.into_iter().flat_map(|e| e.to_ne_bytes().to_vec()).collect();
 
+    let tex: Vec<f32> = (0..(32 * 32)).map(|idx: u32| (idx as f32)).collect();
+
+    log!("Texture size {}", tex.len());
+
     state
         .vertex_buffer(ctx, "position", vb.as_slice())?
         .vertex_buffer(ctx, "uv", uv.as_slice())?
+        .texturef(ctx, "tex", tex.as_slice(), 32, 32)?
         .element_buffer(ctx, eb.as_slice())?;
 
 
-    state.run(ctx, &program, HashMap::new())?;
+    let mut uniforms = HashMap::new();
+    uniforms.insert("tex", gl::UniformData::Texture("tex"));
+
+    state.run(ctx, &program, uniforms)?;
 
     Ok(())
 }
@@ -73,6 +83,7 @@ pub fn start() -> Result<(), JsValue> {
         .unwrap()
         .dyn_into::<WebGlRenderingContext>()?;
 
+    context.get_extension("OES_texture_float")?;
 
     context.clear_color(0.0, 0.0, 0.0, 1.0);
     context.clear(WebGlRenderingContext::COLOR_BUFFER_BIT);
