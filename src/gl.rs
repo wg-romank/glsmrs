@@ -4,30 +4,30 @@ use std::collections::HashMap;
 type Ctx = WebGlRenderingContext;
 
 #[derive(Clone)]
-enum AttributeType {
+pub enum AttributeType {
     Vector(u8),
 }
 
-enum UniformType {
+pub enum UniformType {
     Sampler2D,
     Float,
     Vector2,
 }
 
 #[derive(Clone)]
-struct AttributeDescription {
-    name: &'static str,
-    location: Option<i32>,
-    t: AttributeType,
+pub struct AttributeDescription {
+    pub name: &'static str,
+    pub location: Option<i32>,
+    pub t: AttributeType,
 }
 
-struct UniformDescription {
-    name: &'static str,
-    location: Option<WebGlUniformLocation>,
-    t: UniformType,
+pub struct UniformDescription {
+    pub name: &'static str,
+    pub location: Option<WebGlUniformLocation>,
+    pub t: UniformType,
 }
 
-struct Program {
+pub struct Program {
     program: WebGlProgram,
     attributes: Vec<AttributeDescription>,
     uniforms: Vec<UniformDescription>,
@@ -39,12 +39,12 @@ impl Program {
         vertex: &str,
         fragment: &str,
         uniforms: Vec<UniformDescription>,
-        attributes: Vec<AttributeDescription>) -> Option<Program> {
+        attributes: Vec<AttributeDescription>) -> Result<Program, &'static str> {
 
         let vertex_id = Program::shader(ctx, Ctx::VERTEX_SHADER, vertex)?;
         let fragment_id = Program::shader(ctx, Ctx::FRAGMENT_SHADER, fragment)?;
 
-        let program = ctx.create_program()?;
+        let program = ctx.create_program().ok_or("Failed to create program")?;
         ctx.attach_shader(&program, &vertex_id);
         ctx.attach_shader(&program, &fragment_id);
         ctx.link_program(&program);
@@ -57,12 +57,12 @@ impl Program {
             ctx.get_uniform_location(&program, u.name).map(|u_loc| UniformDescription { location: Some(u_loc), .. u })
         }).collect();
 
-        Some(Program { program, attributes, uniforms })
+        Ok(Program { program, attributes, uniforms })
     }
 
-    fn shader(ctx: &Ctx, shader_type: u32, source: &str) -> Option<WebGlShader> {
+    fn shader(ctx: &Ctx, shader_type: u32, source: &str) -> Result<WebGlShader, &'static str> {
         let shader = ctx
-            .create_shader(shader_type)?;
+            .create_shader(shader_type).ok_or("Failed to create shader")?;
         ctx.shader_source(&shader, source);
         ctx.compile_shader(&shader);
 
@@ -71,18 +71,20 @@ impl Program {
             .as_bool()
             .unwrap_or(false)
         {
-            Some(shader)
-        } else { None }
+            Ok(shader)
+        } else {
+            Err("Failed to compile shader")
+        }
     }
 }
 
-enum UniformData {
+pub enum UniformData {
     Scalar(f32),
     Vector2([f32; 2]),
     Texture(&'static str)
 }
 
-struct GlState {
+pub struct GlState {
     textures: HashMap<&'static str, WebGlTexture>,
     vertex_buffers: HashMap<&'static str, WebGlBuffer>,
     element_buffer: Option<WebGlBuffer>,
