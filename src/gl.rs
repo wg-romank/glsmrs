@@ -38,8 +38,8 @@ impl Program {
         ctx: &Ctx,
         vertex: &str,
         fragment: &str,
-        uniforms: Vec<UniformDescription>,
-        attributes: Vec<AttributeDescription>) -> Result<Program, &'static str> {
+        unis: Vec<UniformDescription>,
+        attrs: Vec<AttributeDescription>) -> Result<Program, String> {
 
         let vertex_id = Program::shader(ctx, Ctx::VERTEX_SHADER, vertex)?;
         let fragment_id = Program::shader(ctx, Ctx::FRAGMENT_SHADER, fragment)?;
@@ -49,20 +49,34 @@ impl Program {
         ctx.attach_shader(&program, &fragment_id);
         ctx.link_program(&program);
 
-        let attributes = attributes.into_iter().map(|a| {
-            AttributeDescription { location: Some(ctx.get_attrib_location(&program, a.name)), .. a }
-        }).collect();
+        let (attributes_r, errors): (Vec<_>, Vec<_>) = attrs.into_iter().map(|a| {
+            let loc = ctx.get_attrib_location(&program, a.name);
+            if loc >= 0 {
+                Ok(AttributeDescription { location: Some(loc), .. a })
+            } else {
+                Err(format!("Failed to locate attrib {}", a.name))
+            }
+        }).partition(Result::is_ok);
 
-        let uniforms = uniforms.into_iter().flat_map(|u| {
-            ctx.get_uniform_location(&program, u.name).map(|u_loc| UniformDescription { location: Some(u_loc), .. u })
-        }).collect();
+        if !errors.is_empty() {
+            let msgs: Vec<String> = errors.into_iter().flat_map(|e| e.err()).collect();
 
-        Ok(Program { program, attributes, uniforms })
+            Err(msgs.join("-"))
+        } else {
+            let attributes = attributes_r.into_iter().flat_map(|a| a).collect();
+
+            // todo: similar checks for uniforms
+            let uniforms: Vec<UniformDescription> = unis.into_iter().flat_map(|u| {
+                ctx.get_uniform_location(&program, u.name).map(|u_loc| UniformDescription { location: Some(u_loc), .. u })
+            }).collect();
+
+            Ok(Program { program, attributes, uniforms })
+        }
     }
 
-    fn shader(ctx: &Ctx, shader_type: u32, source: &str) -> Result<WebGlShader, &'static str> {
+    fn shader(ctx: &Ctx, shader_type: u32, source: &str) -> Result<WebGlShader, String> {
         let shader = ctx
-            .create_shader(shader_type).ok_or("Failed to create shader")?;
+            .create_shader(shader_type).ok_or(format!("Failed to create shader {}", shader_type))?;
         ctx.shader_source(&shader, source);
         ctx.compile_shader(&shader);
 
@@ -73,7 +87,7 @@ impl Program {
         {
             Ok(shader)
         } else {
-            Err("Failed to compile shader")
+            Err(format!("Failed to compile shader {}", shader_type))
         }
     }
 }
@@ -101,27 +115,27 @@ impl GlState {
         }
     }
 
-    pub fn vertex_buffer(&mut self, ctx: &Ctx, name: &'static str, data: &[u8]) -> Option<&mut Self> {
-        let buffer = ctx.create_buffer()?;
+    pub fn vertex_buffer(&mut self, ctx: &Ctx, name: &'static str, data: &[u8]) -> Result<&mut Self, String> {
+        let buffer = ctx.create_buffer().ok_or(format!("Failed to create buffer for {}", name))?;
         ctx.bind_buffer(Ctx::ARRAY_BUFFER, Some(&buffer));
         ctx.buffer_data_with_u8_array(Ctx::ARRAY_BUFFER, data, Ctx::STATIC_DRAW);
 
         self.vertex_buffers.insert(name, buffer);
-        Some(self)
+        Ok(self)
     }
 
-    pub fn element_buffer(&mut self, ctx: &Ctx, data: &[u8]) -> Option<&mut Self> {
-        let buffer = ctx.create_buffer()?;
+    pub fn element_buffer(&mut self, ctx: &Ctx, data: &[u8]) -> Result<&mut Self, String> {
+        let buffer = ctx.create_buffer().ok_or("Failed to create element buffer")?;
         ctx.bind_buffer(Ctx::ELEMENT_ARRAY_BUFFER, Some(&buffer));
         ctx.buffer_data_with_u8_array(Ctx::ELEMENT_ARRAY_BUFFER, data, Ctx::STATIC_DRAW);
 
         self.element_buffer = Some(buffer);
         self.element_buffer_size = data.len() / 2; // assuming UNSIGNED_SHORTS
-        Some(self)
+        Ok(self)
     }
 
-    pub fn texture(&mut self, ctx: &Ctx, name: &'static str, data: &[u8], w: u32, h: u32) -> Option<&mut Self> {
-        let tex = ctx.create_texture()?;
+    pub fn texture(&mut self, ctx: &Ctx, name: &'static str, data: &[u8], w: u32, h: u32) -> Result<&mut Self, String> {
+        let tex = ctx.create_texture().ok_or(format!("Failed to create texture for {}", name))?;
         ctx.bind_texture(Ctx::TEXTURE_2D, Some(&tex));
         ctx.tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_u8_array(
             Ctx::TEXTURE_2D,
@@ -133,7 +147,7 @@ impl GlState {
             Ctx::RGBA,
             Ctx::FLOAT,
             Some(data)
-        ).ok()?;
+        ).map_err(|e| format!("Failed to send image data for {} {:?}", name, e))?;
 
         ctx.tex_parameteri(Ctx::TEXTURE_2D, Ctx::TEXTURE_MIN_FILTER, Ctx::NEAREST as i32);
         ctx.tex_parameteri(Ctx::TEXTURE_2D, Ctx::TEXTURE_MAG_FILTER, Ctx::NEAREST as i32);
@@ -141,10 +155,14 @@ impl GlState {
         ctx.tex_parameteri(Ctx::TEXTURE_2D, Ctx::TEXTURE_WRAP_S, Ctx::CLAMP_TO_EDGE as i32);
 
         self.textures.insert(name, tex);
-        Some(self)
+        Ok(self)
     }
 
-    pub fn run(&self, ctx: &Ctx, program: &Program, uni_values: HashMap<&'static str, UniformData>) -> Option<&Self> {
+    pub fn run(&self, ctx: &Ctx, program: &Program, uni_values: HashMap<&'static str, UniformData>) -> Result<&Self, String> {
+        if self.element_buffer.is_none() {
+            Err("Element buffer is not set")?
+        }
+
         ctx.use_program(Some(&program.program));
 
         self.setup_attributes(ctx, &program.attributes)?;
@@ -156,21 +174,21 @@ impl GlState {
             Ctx::UNSIGNED_SHORT,
             0);
 
-        Some(self)
+        Ok(self)
     }
 
-    fn setup_attributes(&self, ctx: &Ctx, attributes: &Vec<AttributeDescription>) -> Option<&Self> {
+    fn setup_attributes(&self, ctx: &Ctx, attributes: &Vec<AttributeDescription>) -> Result<&Self, String> {
         let mut vert_array_idx = 0;
         for att in attributes {
-            let idx = att.location? as u32;
+            let idx = att.location.ok_or(format!("Location for attribute {} is not set", att.name))? as u32;
 
-            let buffer = self.vertex_buffers.get(att.name)?;
+            let buffer = self.vertex_buffers.get(att.name).ok_or(format!("Vertex buffer for {} is not set", att.name))?;
             ctx.bind_buffer(Ctx::ARRAY_BUFFER, Some(&buffer));
 
-            let size = match att.t {
-                AttributeType::Vector(size) => Some(size)
+            let size: i32 = (match att.t {
+                AttributeType::Vector(size) => Ok(size)
                 // _ => None
-            }? as i32;
+            } as Result<u8, String>)? as i32;
 
             ctx.enable_vertex_attrib_array(vert_array_idx);
             ctx.vertex_attrib_pointer_with_i32(idx, size, Ctx::FLOAT, false, 0, 0);
@@ -178,36 +196,36 @@ impl GlState {
             vert_array_idx += 1;
         }
 
-        Some(self)
+        Ok(self)
     }
 
-    fn setup_uniforms(&self, ctx: &Ctx, uniforms: &Vec<UniformDescription>, uniform_values: HashMap<&'static str, UniformData>) -> Option<&Self> {
+    fn setup_uniforms(&self, ctx: &Ctx, uniforms: &Vec<UniformDescription>, uniform_values: HashMap<&'static str, UniformData>) -> Result<&Self, String> {
         let mut tex_inc = 0;
 
         for uni in uniforms {
-            let loc = uni.location.clone()?;
+            let loc = uni.location.clone().ok_or(format!("Location for uniform {} is not set", uni.name))?;
             match uni.t {
                 // todo: supply scalar
                 UniformType::Float =>
-                    match uniform_values.get(uni.name)? {
+                    match uniform_values.get(uni.name).ok_or(format!("Missing value for scalar uniform {}", uni.name))? {
                         UniformData::Scalar(v) => ctx.uniform1f(Some(&loc), v.clone()),
                         _ => ()
                     },
                 // todo: supply vector
                 UniformType::Vector2 =>
-                    match uniform_values.get(uni.name)? {
+                    match uniform_values.get(uni.name).ok_or(format!("Missing value for vector uniform {}", uni.name))? {
                         UniformData::Vector2(v) => ctx.uniform2fv_with_f32_array(Some(&loc), v),
                         _ => ()
                     },
                 UniformType::Sampler2D => {
                     ctx.active_texture(Ctx::TEXTURE0 + tex_inc);
-                    let tex = self.textures.get(uni.name)?;
+                    let tex = self.textures.get(uni.name).ok_or(format!("Missing value for texture uniform {}", uni.name))?;
                     ctx.bind_texture(Ctx::TEXTURE_2D, Some(&tex));
                     ctx.uniform1i(Some(&loc), tex_inc as i32);
                     tex_inc += 1;
                 }
             }
         }
-        Some(self)
+        Ok(self)
     }
 }
