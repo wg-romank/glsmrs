@@ -1,4 +1,5 @@
 use web_sys::*;
+use js_sys;
 use std::collections::HashMap;
 
 type Ctx = WebGlRenderingContext;
@@ -101,7 +102,7 @@ impl GlState {
         }
     }
 
-    pub fn vertex_buffer(&mut self, ctx: &Ctx, name: &'static str, data: &[u8]) -> Option<&Self> {
+    pub fn vertex_buffer(&mut self, ctx: &Ctx, name: &'static str, data: &[u8]) -> Option<&mut Self> {
         let buffer = ctx.create_buffer()?;
         ctx.bind_buffer(Ctx::ARRAY_BUFFER, Some(&buffer));
         ctx.buffer_data_with_u8_array(Ctx::ARRAY_BUFFER, data, Ctx::STATIC_DRAW);
@@ -110,16 +111,55 @@ impl GlState {
         Some(self)
     }
 
-    pub fn element_buffer(&mut self, ctx: &Ctx, data: &[u8]) -> Option<&Self> {
+    pub fn vertex_buffer_v(&mut self, ctx: &Ctx, name: &'static str, data: &[f32]) -> Option<&mut Self> {
+        let buffer = ctx.create_buffer()?;
+        ctx.bind_buffer(Ctx::ARRAY_BUFFER, Some(&buffer));
+
+        unsafe {
+            let vert_array = js_sys::Float32Array::view(&data);
+
+            ctx.buffer_data_with_array_buffer_view(
+                WebGlRenderingContext::ARRAY_BUFFER,
+                &vert_array,
+                WebGlRenderingContext::STATIC_DRAW,
+            );
+        }
+
+        self.vertex_buffers.insert(name, buffer);
+        Some(self)
+    }
+
+    pub fn element_buffer(&mut self, ctx: &Ctx, data: &[u8]) -> Option<&mut Self> {
         let buffer = ctx.create_buffer()?;
         ctx.bind_buffer(Ctx::ELEMENT_ARRAY_BUFFER, Some(&buffer));
         ctx.buffer_data_with_u8_array(Ctx::ELEMENT_ARRAY_BUFFER, data, Ctx::STATIC_DRAW);
 
         self.element_buffer = Some(buffer);
+        self.element_buffer_size = data.len();
         Some(self)
     }
 
-    pub fn texture(&mut self, ctx: &Ctx, name: &'static str, data: &[u8], w: u32, h: u32) -> Option<&Self> {
+    // pub fn element_buffer_v(&mut self, ctx: &Ctx, name: &'static str, data: &[u8]) -> Option<&mut Self> {
+    //     let buffer = ctx.create_buffer()?;
+    //     ctx.bind_buffer(Ctx::ELEMENT_ARRAY_BUFFER, Some(&buffer));
+
+    //     unsafe {
+    //         let vert_array = js_sys::Uint8Array::view(&data);
+
+    //         ctx.buffer_data_with_array_buffer_view(
+    //             WebGlRenderingContext::ELEMENT_ARRAY_BUFFER,
+    //             &vert_array,
+    //             WebGlRenderingContext::STATIC_DRAW,
+    //         );
+    //     }
+
+    //     self.vertex_buffers.insert(name, buffer);
+    //     self.element_buffer_size = data.len();
+    //     Some(self)
+    // }
+
+
+    pub fn texture(&mut self, ctx: &Ctx, name: &'static str, data: &[u8], w: u32, h: u32) -> Option<&mut Self> {
         let tex = ctx.create_texture()?;
         ctx.bind_texture(Ctx::TEXTURE_2D, Some(&tex));
         ctx.tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_u8_array(
@@ -149,15 +189,20 @@ impl GlState {
         self.setup_attributes(ctx, &program.attributes)?;
         self.setup_uniforms(ctx, &program.uniforms, uni_values)?;
 
-        ctx.draw_arrays(Ctx::TRIANGLES, 0, self.element_buffer_size as i32);
+        ctx.draw_arrays(Ctx::TRIANGLES, 0, 3 as i32);
+        // ctx.draw_elements_with_i32(
+        //     Ctx::TRIANGLES,
+        //     self.element_buffer_size as i32,
+        //     Ctx::UNSIGNED_SHORT,
+        //     0);
 
         Some(self)
     }
 
     fn setup_attributes(&self, ctx: &Ctx, attributes: &Vec<AttributeDescription>) -> Option<&Self> {
+        let mut vert_array_idx = 0;
         for att in attributes {
             let idx = att.location? as u32;
-            ctx.enable_vertex_attrib_array(idx);
 
             let buffer = self.vertex_buffers.get(att.name)?;
             ctx.bind_buffer(Ctx::ARRAY_BUFFER, Some(&buffer));
@@ -166,7 +211,11 @@ impl GlState {
                 AttributeType::Vector(size) => Some(size)
                 // _ => None
             }? as i32;
+
+            ctx.enable_vertex_attrib_array(vert_array_idx);
             ctx.vertex_attrib_pointer_with_i32(idx, size, Ctx::FLOAT, false, 0, 0);
+
+            vert_array_idx += 1;
         }
 
         Some(self)

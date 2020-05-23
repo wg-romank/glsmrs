@@ -22,7 +22,7 @@ pub fn alter_start(ctx: &WebGlRenderingContext) -> Result<(), &'static str> {
         include_str!("../shaders/dummy.frag"),
         vec![],
         vec![
-            gl::AttributeDescription { name: "position", location: None, t: gl::AttributeType::Vector(2) }
+            gl::AttributeDescription { name: "position", location: None, t: gl::AttributeType::Vector(3) }
         ]
     )?;
 
@@ -35,13 +35,20 @@ pub fn alter_start(ctx: &WebGlRenderingContext) -> Result<(), &'static str> {
         1., 1.,           1.0, 1.0,
         -1., 1.,          0.0, 1.0,
     ];
-    let indices: [u32; 6] = [0, 1, 2, 2, 3, 0];
+    let indices: [u8; 6] = [0, 1, 2, 2, 3, 0];
+    // let indices_u8: [u8; 6] = [0, 1, 2, 2, 3, 0];
 
     let vb: Vec<u8> = vertices.into_iter().flat_map(|v| v.to_ne_bytes().to_vec()).collect();
     let eb: Vec<u8> = indices.into_iter().flat_map(|e| e.to_ne_bytes().to_vec()).collect();
 
-    state.vertex_buffer(ctx, "position", vb.as_slice()).ok_or("Failed to create vertex buffer")?;
-    state.element_buffer(ctx, eb.as_slice()).ok_or("Failed to create element buffer")?;
+
+    let vertices: [f32; 9] = [-0.7, -0.7, 0.0, 0.7, -0.7, 0.0, 0.0, 0.7, 0.0];
+
+    state
+        // .vertex_buffer(ctx, "position", vb.as_slice()).ok_or("Failed to create vertex buffer")?;
+        .vertex_buffer_v(ctx, "position", &vertices).ok_or("Failed to create vertex buffer")?;
+        // .element_buffer(ctx, eb.as_slice()).ok_or("Failed to create element buffer")?;
+
 
     state.run(ctx, &program, HashMap::new()).ok_or("Failed to run program")?;
 
@@ -60,6 +67,10 @@ pub fn start() -> Result<(), JsValue> {
         .get_context("webgl")?
         .unwrap()
         .dyn_into::<WebGlRenderingContext>()?;
+
+
+    context.clear_color(0.0, 0.0, 0.0, 1.0);
+    context.clear(WebGlRenderingContext::COLOR_BUFFER_BIT);
 
     alter_start(&context)?;
 
