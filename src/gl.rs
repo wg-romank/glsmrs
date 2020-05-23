@@ -111,24 +111,6 @@ impl GlState {
         Some(self)
     }
 
-    pub fn vertex_buffer_v(&mut self, ctx: &Ctx, name: &'static str, data: &[f32]) -> Option<&mut Self> {
-        let buffer = ctx.create_buffer()?;
-        ctx.bind_buffer(Ctx::ARRAY_BUFFER, Some(&buffer));
-
-        unsafe {
-            let vert_array = js_sys::Float32Array::view(&data);
-
-            ctx.buffer_data_with_array_buffer_view(
-                WebGlRenderingContext::ARRAY_BUFFER,
-                &vert_array,
-                WebGlRenderingContext::STATIC_DRAW,
-            );
-        }
-
-        self.vertex_buffers.insert(name, buffer);
-        Some(self)
-    }
-
     pub fn element_buffer(&mut self, ctx: &Ctx, data: &[u8]) -> Option<&mut Self> {
         let buffer = ctx.create_buffer()?;
         ctx.bind_buffer(Ctx::ELEMENT_ARRAY_BUFFER, Some(&buffer));
@@ -138,26 +120,6 @@ impl GlState {
         self.element_buffer_size = data.len();
         Some(self)
     }
-
-    // pub fn element_buffer_v(&mut self, ctx: &Ctx, name: &'static str, data: &[u8]) -> Option<&mut Self> {
-    //     let buffer = ctx.create_buffer()?;
-    //     ctx.bind_buffer(Ctx::ELEMENT_ARRAY_BUFFER, Some(&buffer));
-
-    //     unsafe {
-    //         let vert_array = js_sys::Uint8Array::view(&data);
-
-    //         ctx.buffer_data_with_array_buffer_view(
-    //             WebGlRenderingContext::ELEMENT_ARRAY_BUFFER,
-    //             &vert_array,
-    //             WebGlRenderingContext::STATIC_DRAW,
-    //         );
-    //     }
-
-    //     self.vertex_buffers.insert(name, buffer);
-    //     self.element_buffer_size = data.len();
-    //     Some(self)
-    // }
-
 
     pub fn texture(&mut self, ctx: &Ctx, name: &'static str, data: &[u8], w: u32, h: u32) -> Option<&mut Self> {
         let tex = ctx.create_texture()?;
