@@ -18,8 +18,8 @@ macro_rules! log {
     }
 }
 
-pub fn alter_start(ctx: &WebGlRenderingContext) -> Result<(), String> {
-    let program = gl::Program::new(
+pub fn display_program(ctx: &WebGlRenderingContext) -> Result<gl::Program, String> {
+    gl::Program::new(
         ctx,
         include_str!("../shaders/dummy.vert"),
         include_str!("../shaders/dummy.frag"),
@@ -30,23 +30,11 @@ pub fn alter_start(ctx: &WebGlRenderingContext) -> Result<(), String> {
             gl::AttributeDescription { name: "position", location: None, t: gl::AttributeType::Vector(2) },
             gl::AttributeDescription { name: "uv", location: None, t: gl::AttributeType::Vector(2) }
         ]
-    )?;
+    )
+}
 
+pub fn setup_state(ctx: &WebGlRenderingContext, vertices: [f32; 8], uvs: [f32; 8], indices: [u16; 6]) -> Result<gl::GlState, String> {
     let mut state = gl::GlState::new();
-
-    let vertices: [f32; 8] = [
-        -0.5, -0.5,
-        0.5, -0.5,
-        0.5, 0.5,
-        -0.5, 0.5
-    ];
-    let uvs: [f32; 8] = [
-        0.0, 0.0,
-        1.0, 0.0,
-        1.0, 1.0,
-        0.0, 1.0
-    ];
-    let indices: [u16; 6] = [0, 1, 2, 2, 3, 0];
 
     let vb: Vec<u8> = vertices.iter().flat_map(|v| v.to_ne_bytes().to_vec()).collect();
     let uv: Vec<u8> = uvs.iter().flat_map(|u| u.to_ne_bytes().to_vec()).collect();
@@ -77,6 +65,27 @@ pub fn alter_start(ctx: &WebGlRenderingContext) -> Result<(), String> {
         .texture(ctx, "tex", tex_byts.as_slice(), size, size)?
         .element_buffer(ctx, eb.as_slice())?;
 
+    Ok(state)
+}
+
+pub fn alter_start(ctx: &WebGlRenderingContext) -> Result<(), String> {
+    let program = display_program(&ctx)?;
+
+    let vertices: [f32; 8] = [
+        -0.5, -0.5,
+        0.5, -0.5,
+        0.5, 0.5,
+        -0.5, 0.5
+    ];
+    let uvs: [f32; 8] = [
+        0.0, 0.0,
+        1.0, 0.0,
+        1.0, 1.0,
+        0.0, 1.0
+    ];
+    let indices: [u16; 6] = [0, 1, 2, 2, 3, 0];
+
+    let state = setup_state(&ctx, vertices, uvs, indices)?;
 
     let mut uniforms = HashMap::new();
     uniforms.insert("tex", gl::UniformData::Texture("tex"));
@@ -96,41 +105,38 @@ fn request_animation_frame(f: &Closure<dyn FnMut()>) {
         .expect("should register `requestAnimationFrame` OK");
 }
 
-#[wasm_bindgen(start)]
-pub fn start() -> Result<(), JsValue> {
-    panic::set_hook(Box::new(console_error_panic_hook::hook));
-
-    let document = window().document().unwrap();
-    let canvas = document.get_element_by_id("canvas").unwrap();
+fn prepare_canvas() -> Result<WebGlRenderingContext, JsValue> {
+    let document = window().document().ok_or("Expected document")?;
+    let canvas = document.get_element_by_id("canvas").ok_or("Missig 'canvas' element")?;
     let canvas: web_sys::HtmlCanvasElement = canvas.dyn_into::<web_sys::HtmlCanvasElement>()?;
 
     let context = canvas
         .get_context("webgl")?
-        .unwrap()
+        .ok_or("WebGl 1.0 not supported")?
         .dyn_into::<WebGlRenderingContext>()?;
 
     context.clear_color(0.0, 0.0, 0.0, 1.0);
     context.clear(WebGlRenderingContext::COLOR_BUFFER_BIT);
+
+    Ok(context)
+}
+
+#[wasm_bindgen(start)]
+pub fn start() -> Result<(), JsValue> {
+    panic::set_hook(Box::new(console_error_panic_hook::hook));
+    let context = prepare_canvas()?;
 
     alter_start(&context)?;
 
     let f = Rc::new(RefCell::new(None));
     let g = f.clone();
 
-    let mut i = 0;
     *g.borrow_mut() = Some(Closure::wrap(Box::new(move || {
-        // Set the body's text content to how many times this
-        // requestAnimationFrame callback has fired.
-        log!("requestAnimationFrame has been called {} times.", i);
-        // Schedule ourself for another requestAnimationFrame callback.
-        i += 1;
+        // todo: put animation code
         request_animation_frame(f.borrow().as_ref().unwrap());
     }) as Box<dyn FnMut()>));
 
     request_animation_frame(g.borrow().as_ref().unwrap());
-
-    // // ensure callback is living long enough
-    // f.forget();
 
     Ok(())
 }
