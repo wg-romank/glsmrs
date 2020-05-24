@@ -135,35 +135,6 @@ impl GlState {
         Ok(self)
     }
 
-    pub fn texturef(&mut self, ctx: &Ctx, name: &'static str, data: &[f32], w: u32, h: u32) -> Result<&mut Self, String> {
-        let tex = ctx.create_texture().ok_or(format!("Failed to create texture for {}", name))?;
-        ctx.bind_texture(Ctx::TEXTURE_2D, Some(&tex));
-
-        unsafe {
-            let data_array = js_sys::Float32Array::view(&data);
-
-            ctx.tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_array_buffer_view(
-                Ctx::TEXTURE_2D,
-                0,
-                Ctx::RGBA as i32,
-                w as i32,
-                h as i32,
-                0,
-                Ctx::RGBA,
-                Ctx::FLOAT,
-                Some(&data_array)
-            ).map_err(|e| format!("Failed to send image data for {} {:?}", name, e))?;
-        };
-
-        ctx.tex_parameteri(Ctx::TEXTURE_2D, Ctx::TEXTURE_MIN_FILTER, Ctx::NEAREST as i32);
-        ctx.tex_parameteri(Ctx::TEXTURE_2D, Ctx::TEXTURE_MAG_FILTER, Ctx::NEAREST as i32);
-        ctx.tex_parameteri(Ctx::TEXTURE_2D, Ctx::TEXTURE_WRAP_T, Ctx::CLAMP_TO_EDGE as i32);
-        ctx.tex_parameteri(Ctx::TEXTURE_2D, Ctx::TEXTURE_WRAP_S, Ctx::CLAMP_TO_EDGE as i32);
-
-        self.textures.insert(name, tex);
-        Ok(self)
-    }
-
     pub fn texture(&mut self, ctx: &Ctx, name: &'static str, data: &[u8], w: u32, h: u32) -> Result<&mut Self, String> {
         let tex = ctx.create_texture().ok_or(format!("Failed to create texture for {}", name))?;
         ctx.bind_texture(Ctx::TEXTURE_2D, Some(&tex));
