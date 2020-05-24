@@ -18,13 +18,14 @@ macro_rules! log {
     }
 }
 
-pub fn display_program(ctx: &WebGlRenderingContext) -> Result<gl::Program, String> {
+fn display_program(ctx: &WebGlRenderingContext) -> Result<gl::Program, String> {
     gl::Program::new(
         ctx,
         include_str!("../shaders/dummy.vert"),
         include_str!("../shaders/dummy.frag"),
         vec![
             gl::UniformDescription::new("tex", gl::UniformType::Sampler2D),
+            gl::UniformDescription::new("time", gl::UniformType::Float),
         ],
         vec![
             gl::AttributeDescription::new("position", gl::AttributeType::Vector2),
@@ -33,7 +34,7 @@ pub fn display_program(ctx: &WebGlRenderingContext) -> Result<gl::Program, Strin
     )
 }
 
-pub fn setup_state(ctx: &WebGlRenderingContext, viewport: gl::Viewport, vertices: [f32; 8], uvs: [f32; 8], indices: [u16; 6]) -> Result<gl::GlState, String> {
+fn setup_state(ctx: &WebGlRenderingContext, viewport: gl::Viewport, vertices: [f32; 8], uvs: [f32; 8], indices: [u16; 6]) -> Result<gl::GlState, String> {
     let mut state = gl::GlState::new(viewport);
 
     let vb: Vec<u8> = vertices.iter().flat_map(|v| v.to_ne_bytes().to_vec()).collect();
@@ -63,19 +64,20 @@ pub fn setup_state(ctx: &WebGlRenderingContext, viewport: gl::Viewport, vertices
         .vertex_buffer(ctx, "position", vb.as_slice())?
         .vertex_buffer(ctx, "uv", uv.as_slice())?
         .texture(ctx, "tex", Some(tex_byts.as_slice()), size, size)?
+        .texture(&ctx, "buf", None, 256, 256)?
         .element_buffer(ctx, eb.as_slice())?;
 
     Ok(state)
 }
 
-pub fn alter_start(ctx: &WebGlRenderingContext, viewport: gl::Viewport) -> Result<(), String> {
+fn setup_scene(ctx: &WebGlRenderingContext, viewport: gl::Viewport) -> Result<(gl::Program, gl::GlState), String> {
     let program = display_program(&ctx)?;
 
     let vertices: [f32; 8] = [
-        -0.5, -0.5,
-        0.5, -0.5,
-        0.5, 0.5,
-        -0.5, 0.5
+        -0.9, -0.9,
+        0.9, -0.9,
+        0.9, 0.9,
+        -0.9, 0.9
     ];
     let uvs: [f32; 8] = [
         0.0, 0.0,
@@ -85,18 +87,22 @@ pub fn alter_start(ctx: &WebGlRenderingContext, viewport: gl::Viewport) -> Resul
     ];
     let indices: [u16; 6] = [0, 1, 2, 2, 3, 0];
 
-    let mut state = setup_state(&ctx, viewport, vertices, uvs, indices)?;
+    let state = setup_state(&ctx, viewport, vertices, uvs, indices)?;
 
+    Ok((program, state))
+}
+
+fn animation_step(ctx: &WebGlRenderingContext, program: &gl::Program, state: &gl::GlState, time: u32) -> Result<(), String> {
     let uniforms: HashMap<_, _> = vec![
-        ("tex", gl::UniformData::Texture("tex"))
+        ("tex", gl::UniformData::Texture("tex")),
+        ("time", gl::UniformData::Scalar(time as f32)),
     ].into_iter().collect();
 
-    // state.run(ctx, &program, &uniforms)?;
-    state.texture(&ctx, "tex2", None, 256, 256)?;
-    state.run_mut(ctx, &program, &uniforms, "tex2")?;
+    state.run_mut(ctx, &program, &uniforms, "buf")?;
 
     let uniforms2: HashMap<_, _> = vec![
-        ("tex", gl::UniformData::Texture("tex2"))
+        ("tex", gl::UniformData::Texture("buf")),
+        ("time", gl::UniformData::Scalar(time as f32)),
     ].into_iter().collect();
 
     state.run(ctx, &program, &uniforms2)?;
@@ -135,13 +141,19 @@ pub fn start() -> Result<(), JsValue> {
     panic::set_hook(Box::new(console_error_panic_hook::hook));
     let (context, viewport) = prepare_canvas()?;
 
-    alter_start(&context, viewport)?;
+    let (p, state) = setup_scene(&context, viewport)?;
 
     let f = Rc::new(RefCell::new(None));
     let g = f.clone();
 
+    let mut time = 0;
     *g.borrow_mut() = Some(Closure::wrap(Box::new(move || {
-        // todo: put animation code
+        // todo: get delta since last frame?
+        match animation_step(&context, &p, &state, time) {
+            Ok(_) => log!("Got frame!"),
+            Err(message) => log!("Error running animation step: {}", message),
+        };
+        time += 1;
         request_animation_frame(f.borrow().as_ref().unwrap());
     }) as Box<dyn FnMut()>));
 

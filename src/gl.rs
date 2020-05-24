@@ -205,8 +205,8 @@ impl GlState {
         Ok(self)
     }
 
-    pub fn run_mut(&mut self, ctx: &Ctx, program: &Program, uni_values: &HashMap<&'static str, UniformData>,
-                   name: &'static str) -> Result<&mut Self, String> {
+    pub fn run_mut(&self, ctx: &Ctx, program: &Program, uni_values: &HashMap<&'static str, UniformData>,
+                   name: &'static str) -> Result<&Self, String> {
         let tex = self.textures.get(name).ok_or(format!("Can't render to {} no such texture", name))?;
 
         let fb = ctx.create_framebuffer().ok_or(format!("Failed to create frame buffer for {}", name))?;
