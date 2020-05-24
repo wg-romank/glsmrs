@@ -148,11 +148,15 @@ pub fn start() -> Result<(), JsValue> {
 
     let mut time = 0;
     *g.borrow_mut() = Some(Closure::wrap(Box::new(move || {
+        if time > 300 {
+            let _ = f.borrow_mut().take();
+            return;
+        }
         // todo: get delta since last frame?
         match animation_step(&context, &p, &state, time) {
-            Ok(_) => log!("Got frame!"),
+            Ok(_) => (),
             Err(message) => log!("Error running animation step: {}", message),
-        };
+        }
         time += 1;
         request_animation_frame(f.borrow().as_ref().unwrap());
     }) as Box<dyn FnMut()>));
