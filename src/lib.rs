@@ -51,13 +51,18 @@ pub fn alter_start(ctx: &WebGlRenderingContext) -> Result<(), String> {
 
     // let tex: Vec<f32> = (0..(32 * 32)).map(|idx: u32| (idx as f32)).collect();
     let mut tex_byts: Vec<u8> = vec![];
-    let size = 32;
+    let size = 256;
     for col in 0..size {
         for row in 0..size {
             // rgba is 32 bit, thus here we want to encode our data using u32
             let red_bytes = ((row * size + col) as u32).to_ne_bytes().to_vec();
             // times 256 to shift to next channel
             let gree_bytes = ((row * size + col) * 256 as u32).to_ne_bytes().to_vec();
+            //    col
+            //
+            //     |
+            //  
+            //  (0, 0)   ->  row
             for b in red_bytes {
                 tex_byts.push(b);
             }
