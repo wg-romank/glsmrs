@@ -5,7 +5,7 @@ type Ctx = WebGlRenderingContext;
 
 #[derive(Clone)]
 pub enum AttributeType {
-    Vector(u8),
+    Vector2, Vector3, Vector4
 }
 
 pub enum UniformType {
@@ -21,10 +21,22 @@ pub struct AttributeDescription {
     pub t: AttributeType,
 }
 
+impl AttributeDescription {
+    pub fn new(name: &'static str, t: AttributeType) -> AttributeDescription {
+        AttributeDescription { name, location: None, t }
+    }
+}
+
 pub struct UniformDescription {
     pub name: &'static str,
     pub location: Option<WebGlUniformLocation>,
     pub t: UniformType,
+}
+
+impl UniformDescription {
+    pub fn new (name: &'static str, t: UniformType) -> UniformDescription {
+        UniformDescription { name, location: None, t }
+    }
 }
 
 pub struct Program {
@@ -194,15 +206,13 @@ impl GlState {
     }
 
     pub fn run_mut(&mut self, ctx: &Ctx, program: &Program, uni_values: &HashMap<&'static str, UniformData>,
-                   name: &'static str, w: u32, h :u32) -> Result<&mut Self, String> {
-
-        self.texture(&ctx, name, None, w, h)?;
-        let tex = self.textures.get(name).ok_or("This should never happen")?;
+                   name: &'static str) -> Result<&mut Self, String> {
+        let tex = self.textures.get(name).ok_or(format!("Can't render to {} no such texture", name))?;
 
         let fb = ctx.create_framebuffer().ok_or(format!("Failed to create frame buffer for {}", name))?;
         ctx.bind_framebuffer(Ctx::FRAMEBUFFER, Some(&fb));
         ctx.framebuffer_texture_2d(Ctx::FRAMEBUFFER, Ctx::COLOR_ATTACHMENT0, Ctx::TEXTURE_2D, Some(&tex.handle), 0);
-        ctx.viewport(0, 0, w as i32, h as i32);
+        ctx.viewport(0, 0, tex.viewport.w as i32, tex.viewport.h as i32);
 
         self.run(&ctx, &program, &uni_values)?;
 
@@ -220,10 +230,11 @@ impl GlState {
             let buffer = self.vertex_buffers.get(att.name).ok_or(format!("Vertex buffer for {} is not set", att.name))?;
             ctx.bind_buffer(Ctx::ARRAY_BUFFER, Some(&buffer));
 
-            let size: i32 = (match att.t {
-                AttributeType::Vector(size) => Ok(size)
-                // _ => None
-            } as Result<u8, String>)? as i32;
+            let size: i32 = match att.t {
+                AttributeType::Vector2 => 2,
+                AttributeType::Vector3 => 3,
+                AttributeType::Vector4 => 4,
+            } as i32;
 
             ctx.enable_vertex_attrib_array(vert_array_idx);
             ctx.vertex_attrib_pointer_with_i32(idx, size, Ctx::FLOAT, false, 0, 0);
@@ -241,13 +252,11 @@ impl GlState {
         for uni in uniforms {
             let loc = uni.location.clone().ok_or(format!("Location for uniform {} is not set", uni.name))?;
             match uni.t {
-                // todo: supply scalar
                 UniformType::Float =>
                     match uniform_values.get(uni.name).ok_or(format!("Missing value for scalar uniform {}", uni.name))? {
                         UniformData::Scalar(v) => ctx.uniform1f(Some(&loc), v.clone()),
                         _ => ()
                     },
-                // todo: supply vector
                 UniformType::Vector2 =>
                     match uniform_values.get(uni.name).ok_or(format!("Missing value for vector uniform {}", uni.name))? {
                         UniformData::Vector2(v) => ctx.uniform2fv_with_f32_array(Some(&loc), v),

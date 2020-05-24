@@ -24,11 +24,11 @@ pub fn display_program(ctx: &WebGlRenderingContext) -> Result<gl::Program, Strin
         include_str!("../shaders/dummy.vert"),
         include_str!("../shaders/dummy.frag"),
         vec![
-            gl::UniformDescription { name: "tex", location: None, t: gl::UniformType::Sampler2D }
+            gl::UniformDescription::new("tex", gl::UniformType::Sampler2D),
         ],
         vec![
-            gl::AttributeDescription { name: "position", location: None, t: gl::AttributeType::Vector(2) },
-            gl::AttributeDescription { name: "uv", location: None, t: gl::AttributeType::Vector(2) }
+            gl::AttributeDescription::new("position", gl::AttributeType::Vector2),
+            gl::AttributeDescription::new("uv", gl::AttributeType::Vector2),
         ]
     )
 }
