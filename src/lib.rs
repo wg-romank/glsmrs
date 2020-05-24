@@ -1,6 +1,6 @@
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
-use web_sys::{WebGlProgram, WebGlRenderingContext, WebGlShader};
+use web_sys::{WebGlRenderingContext};
 
 use std::collections::HashMap;
 
@@ -25,7 +25,7 @@ pub fn alter_start(ctx: &WebGlRenderingContext) -> Result<(), String> {
         ],
         vec![
             gl::AttributeDescription { name: "position", location: None, t: gl::AttributeType::Vector(2) },
-            // gl::AttributeDescription { name: "uv", location: None, t: gl::AttributeType::Vector(2) }
+            gl::AttributeDescription { name: "uv", location: None, t: gl::AttributeType::Vector(2) }
         ]
     )?;
 
@@ -45,20 +45,30 @@ pub fn alter_start(ctx: &WebGlRenderingContext) -> Result<(), String> {
     ];
     let indices: [u16; 6] = [0, 1, 2, 2, 3, 0];
 
-    // let vertices: [f32; 9] = [-0.7, -0.7, 0.0, 0.7, -0.7, 0.0, 0.0, 0.7, 0.0];
-    let vb: Vec<u8> = vertices.into_iter().flat_map(|v| v.to_ne_bytes().to_vec()).collect();
-    let uv: Vec<u8> = uvs.into_iter().flat_map(|u| u.to_ne_bytes().to_vec()).collect();
-    // let indices: [u16; 3] = [0, 1, 2];
-    let eb: Vec<u8> = indices.into_iter().flat_map(|e| e.to_ne_bytes().to_vec()).collect();
+    let vb: Vec<u8> = vertices.iter().flat_map(|v| v.to_ne_bytes().to_vec()).collect();
+    let uv: Vec<u8> = uvs.iter().flat_map(|u| u.to_ne_bytes().to_vec()).collect();
+    let eb: Vec<u8> = indices.iter().flat_map(|e| e.to_ne_bytes().to_vec()).collect();
 
-    let tex: Vec<f32> = (0..(32 * 32)).map(|idx: u32| (idx as f32)).collect();
-
-    log!("Texture size {}", tex.len());
+    // let tex: Vec<f32> = (0..(32 * 32)).map(|idx: u32| (idx as f32)).collect();
+    let mut tex_byts: Vec<u8> = vec![];
+    let size = 32;
+    for col in 0..size {
+        for row in 0..size {
+            // rgba is 32 bit, thus here we want to encode our data using u32
+            let red_bytes = ((row * size + col) as u32).to_ne_bytes().to_vec();
+            // times 256 to shift to next channel
+            let gree_bytes = ((row * size + col) * 256 as u32).to_ne_bytes().to_vec();
+            for b in red_bytes {
+                tex_byts.push(b);
+            }
+        }
+    }
 
     state
         .vertex_buffer(ctx, "position", vb.as_slice())?
         .vertex_buffer(ctx, "uv", uv.as_slice())?
-        .texturef(ctx, "tex", tex.as_slice(), 32, 32)?
+        // .texturef(ctx, "tex", tex.as_slice(), 32, 32)?
+        .texture(ctx, "tex", tex_byts.as_slice(), size, size)?
         .element_buffer(ctx, eb.as_slice())?;
 
 
@@ -83,7 +93,7 @@ pub fn start() -> Result<(), JsValue> {
         .unwrap()
         .dyn_into::<WebGlRenderingContext>()?;
 
-    context.get_extension("OES_texture_float")?;
+    // context.get_extension("OES_texture_float")?;
 
     context.clear_color(0.0, 0.0, 0.0, 1.0);
     context.clear(WebGlRenderingContext::COLOR_BUFFER_BIT);
