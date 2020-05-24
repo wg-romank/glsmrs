@@ -92,6 +92,16 @@ impl Program {
     }
 }
 
+pub struct Viewport {
+    pub w: u32,
+    pub h: u32
+}
+
+pub struct TextureSpec {
+    viewport: Viewport,
+    handle: WebGlTexture
+}
+
 pub enum UniformData {
     Scalar(f32),
     Vector2([f32; 2]),
@@ -99,15 +109,17 @@ pub enum UniformData {
 }
 
 pub struct GlState {
-    textures: HashMap<&'static str, WebGlTexture>,
+    viewport: Viewport,
+    textures: HashMap<&'static str, TextureSpec>,
     vertex_buffers: HashMap<&'static str, WebGlBuffer>,
     element_buffer: Option<WebGlBuffer>,
     element_buffer_size: usize,
 }
 
 impl GlState {
-    pub fn new() -> GlState {
+    pub fn new(viewport: Viewport) -> GlState {
         GlState {
+            viewport,
             textures: HashMap::new(),
             vertex_buffers: HashMap::new(),
             element_buffer: None,
@@ -135,7 +147,7 @@ impl GlState {
         Ok(self)
     }
 
-    pub fn texture(&mut self, ctx: &Ctx, name: &'static str, data: &[u8], w: u32, h: u32) -> Result<&mut Self, String> {
+    pub fn texture(&mut self, ctx: &Ctx, name: &'static str, data: Option<&[u8]>, w: u32, h: u32) -> Result<&mut Self, String> {
         let tex = ctx.create_texture().ok_or(format!("Failed to create texture for {}", name))?;
         ctx.bind_texture(Ctx::TEXTURE_2D, Some(&tex));
         ctx.tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_u8_array(
@@ -147,7 +159,7 @@ impl GlState {
             0,
             Ctx::RGBA,
             Ctx::UNSIGNED_BYTE,
-            Some(data)
+            data
         ).map_err(|e| format!("Failed to send image data for {} {:?}", name, e))?;
 
         ctx.tex_parameteri(Ctx::TEXTURE_2D, Ctx::TEXTURE_MIN_FILTER, Ctx::NEAREST as i32);
@@ -155,11 +167,14 @@ impl GlState {
         ctx.tex_parameteri(Ctx::TEXTURE_2D, Ctx::TEXTURE_WRAP_T, Ctx::CLAMP_TO_EDGE as i32);
         ctx.tex_parameteri(Ctx::TEXTURE_2D, Ctx::TEXTURE_WRAP_S, Ctx::CLAMP_TO_EDGE as i32);
 
-        self.textures.insert(name, tex);
+        self.textures.insert(name, TextureSpec {
+            viewport: Viewport { w, h },
+            handle: tex
+        });
         Ok(self)
     }
 
-    pub fn run(&self, ctx: &Ctx, program: &Program, uni_values: HashMap<&'static str, UniformData>) -> Result<&Self, String> {
+    pub fn run(&self, ctx: &Ctx, program: &Program, uni_values: &HashMap<&'static str, UniformData>) -> Result<&Self, String> {
         if self.element_buffer.is_none() {
             Err("Element buffer is not set")?
         }
@@ -174,6 +189,25 @@ impl GlState {
             self.element_buffer_size as i32,
             Ctx::UNSIGNED_SHORT,
             0);
+
+        Ok(self)
+    }
+
+    pub fn run_mut(&mut self, ctx: &Ctx, program: &Program, uni_values: &HashMap<&'static str, UniformData>,
+                   name: &'static str, w: u32, h :u32) -> Result<&mut Self, String> {
+
+        self.texture(&ctx, name, None, w, h)?;
+        let tex = self.textures.get(name).ok_or("This should never happen")?;
+
+        let fb = ctx.create_framebuffer().ok_or(format!("Failed to create frame buffer for {}", name))?;
+        ctx.bind_framebuffer(Ctx::FRAMEBUFFER, Some(&fb));
+        ctx.framebuffer_texture_2d(Ctx::FRAMEBUFFER, Ctx::COLOR_ATTACHMENT0, Ctx::TEXTURE_2D, Some(&tex.handle), 0);
+        ctx.viewport(0, 0, w as i32, h as i32);
+
+        self.run(&ctx, &program, &uni_values)?;
+
+        ctx.bind_framebuffer(Ctx::FRAMEBUFFER, None);
+        ctx.viewport(0, 0, self.viewport.w as i32, self.viewport.h as i32);
 
         Ok(self)
     }
@@ -200,7 +234,8 @@ impl GlState {
         Ok(self)
     }
 
-    fn setup_uniforms(&self, ctx: &Ctx, uniforms: &Vec<UniformDescription>, uniform_values: HashMap<&'static str, UniformData>) -> Result<&Self, String> {
+    // todo: keep index to only update when new textures are coming?
+    fn setup_uniforms(&self, ctx: &Ctx, uniforms: &Vec<UniformDescription>, uniform_values: &HashMap<&'static str, UniformData>) -> Result<&Self, String> {
         let mut tex_inc = 0;
 
         for uni in uniforms {
@@ -221,7 +256,7 @@ impl GlState {
                 UniformType::Sampler2D => {
                     ctx.active_texture(Ctx::TEXTURE0 + tex_inc);
                     let tex = self.textures.get(uni.name).ok_or(format!("Missing value for texture uniform {}", uni.name))?;
-                    ctx.bind_texture(Ctx::TEXTURE_2D, Some(&tex));
+                    ctx.bind_texture(Ctx::TEXTURE_2D, Some(&tex.handle));
                     ctx.uniform1i(Some(&loc), tex_inc as i32);
                     tex_inc += 1;
                 }

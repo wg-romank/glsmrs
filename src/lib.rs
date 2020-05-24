@@ -33,8 +33,8 @@ pub fn display_program(ctx: &WebGlRenderingContext) -> Result<gl::Program, Strin
     )
 }
 
-pub fn setup_state(ctx: &WebGlRenderingContext, vertices: [f32; 8], uvs: [f32; 8], indices: [u16; 6]) -> Result<gl::GlState, String> {
-    let mut state = gl::GlState::new();
+pub fn setup_state(ctx: &WebGlRenderingContext, viewport: gl::Viewport, vertices: [f32; 8], uvs: [f32; 8], indices: [u16; 6]) -> Result<gl::GlState, String> {
+    let mut state = gl::GlState::new(viewport);
 
     let vb: Vec<u8> = vertices.iter().flat_map(|v| v.to_ne_bytes().to_vec()).collect();
     let uv: Vec<u8> = uvs.iter().flat_map(|u| u.to_ne_bytes().to_vec()).collect();
@@ -62,13 +62,13 @@ pub fn setup_state(ctx: &WebGlRenderingContext, vertices: [f32; 8], uvs: [f32; 8
     state
         .vertex_buffer(ctx, "position", vb.as_slice())?
         .vertex_buffer(ctx, "uv", uv.as_slice())?
-        .texture(ctx, "tex", tex_byts.as_slice(), size, size)?
+        .texture(ctx, "tex", Some(tex_byts.as_slice()), size, size)?
         .element_buffer(ctx, eb.as_slice())?;
 
     Ok(state)
 }
 
-pub fn alter_start(ctx: &WebGlRenderingContext) -> Result<(), String> {
+pub fn alter_start(ctx: &WebGlRenderingContext, viewport: gl::Viewport) -> Result<(), String> {
     let program = display_program(&ctx)?;
 
     let vertices: [f32; 8] = [
@@ -85,12 +85,13 @@ pub fn alter_start(ctx: &WebGlRenderingContext) -> Result<(), String> {
     ];
     let indices: [u16; 6] = [0, 1, 2, 2, 3, 0];
 
-    let state = setup_state(&ctx, vertices, uvs, indices)?;
+    let state = setup_state(&ctx, viewport, vertices, uvs, indices)?;
 
-    let mut uniforms = HashMap::new();
-    uniforms.insert("tex", gl::UniformData::Texture("tex"));
+    let uniforms: HashMap<_, _> = vec![
+        ("tex", gl::UniformData::Texture("tex"))
+    ].into_iter().collect();
 
-    state.run(ctx, &program, uniforms)?;
+    state.run(ctx, &program, &uniforms)?;
 
     Ok(())
 }
@@ -105,7 +106,7 @@ fn request_animation_frame(f: &Closure<dyn FnMut()>) {
         .expect("should register `requestAnimationFrame` OK");
 }
 
-fn prepare_canvas() -> Result<WebGlRenderingContext, JsValue> {
+fn prepare_canvas() -> Result<(WebGlRenderingContext, gl::Viewport), JsValue> {
     let document = window().document().ok_or("Expected document")?;
     let canvas = document.get_element_by_id("canvas").ok_or("Missig 'canvas' element")?;
     let canvas: web_sys::HtmlCanvasElement = canvas.dyn_into::<web_sys::HtmlCanvasElement>()?;
@@ -118,15 +119,15 @@ fn prepare_canvas() -> Result<WebGlRenderingContext, JsValue> {
     context.clear_color(0.0, 0.0, 0.0, 1.0);
     context.clear(WebGlRenderingContext::COLOR_BUFFER_BIT);
 
-    Ok(context)
+    Ok((context, gl::Viewport { w: canvas.width(), h: canvas.height() }))
 }
 
 #[wasm_bindgen(start)]
 pub fn start() -> Result<(), JsValue> {
     panic::set_hook(Box::new(console_error_panic_hook::hook));
-    let context = prepare_canvas()?;
+    let (context, viewport) = prepare_canvas()?;
 
-    alter_start(&context)?;
+    alter_start(&context, viewport)?;
 
     let f = Rc::new(RefCell::new(None));
     let g = f.clone();
