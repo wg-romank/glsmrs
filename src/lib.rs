@@ -85,13 +85,21 @@ pub fn alter_start(ctx: &WebGlRenderingContext, viewport: gl::Viewport) -> Resul
     ];
     let indices: [u16; 6] = [0, 1, 2, 2, 3, 0];
 
-    let state = setup_state(&ctx, viewport, vertices, uvs, indices)?;
+    let mut state = setup_state(&ctx, viewport, vertices, uvs, indices)?;
 
     let uniforms: HashMap<_, _> = vec![
         ("tex", gl::UniformData::Texture("tex"))
     ].into_iter().collect();
 
-    state.run(ctx, &program, &uniforms)?;
+    // state.run(ctx, &program, &uniforms)?;
+    state.texture(&ctx, "tex2", None, 256, 256)?;
+    state.run_mut(ctx, &program, &uniforms, "tex2")?;
+
+    let uniforms2: HashMap<_, _> = vec![
+        ("tex", gl::UniformData::Texture("tex2"))
+    ].into_iter().collect();
+
+    state.run(ctx, &program, &uniforms2)?;
 
     Ok(())
 }

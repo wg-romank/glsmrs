@@ -263,11 +263,16 @@ impl GlState {
                         _ => ()
                     },
                 UniformType::Sampler2D => {
-                    ctx.active_texture(Ctx::TEXTURE0 + tex_inc);
-                    let tex = self.textures.get(uni.name).ok_or(format!("Missing value for texture uniform {}", uni.name))?;
-                    ctx.bind_texture(Ctx::TEXTURE_2D, Some(&tex.handle));
-                    ctx.uniform1i(Some(&loc), tex_inc as i32);
-                    tex_inc += 1;
+                    match uniform_values.get(uni.name).ok_or(format!("Missing value for texture uniform {}", uni.name))? {
+                        UniformData::Texture(name) => {
+                            ctx.active_texture(Ctx::TEXTURE0 + tex_inc);
+                            let tex = self.textures.get(name).ok_or(format!("Missing texture {} references from uniform {}", name, uni.name))?;
+                            ctx.bind_texture(Ctx::TEXTURE_2D, Some(&tex.handle));
+                            ctx.uniform1i(Some(&loc), tex_inc as i32);
+                            tex_inc += 1;
+                        },
+                        _ => ()
+                    }
                 }
             }
         }
