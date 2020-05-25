@@ -32,33 +32,33 @@ gl::Program::new(
 Initialize & prepare state of GLSM
 
 ```rust
-let mut state = gl::GlState::new(viewport);
+let mut state = gl::GlState::new(&ctx, viewport);
 
 state
-    .vertex_buffer(ctx, "position", vb)?
-    .vertex_buffer(ctx, "uv", uv)?
-    .texture(ctx, "tex", Some(tex_byts), size, size)?
-    .texture(&ctx, "buf", None, size, size)?
-    .element_buffer(ctx, eb)?;
+    .vertex_buffer("position", vb)?
+    .vertex_buffer("uv", uv)?
+    .texture("tex", Some(tex_byts), size, size)?
+    .texture("buf", None, size, size)?
+    .element_buffer(eb)?;
 ```
 
 Use program & state together
 
 ```rust
-fn animation_step(ctx: &WebGlRenderingContext, program: &gl::Program, state: &gl::GlState, time: u32) -> Result<(), String> {
+fn animation_step(program: &gl::Program, state: &gl::GlState, time: u32) -> Result<(), String> {
     let uniforms: HashMap<_, _> = vec![
         ("tex", gl::UniformData::Texture("tex")),
         ("time", gl::UniformData::Scalar(time as f32)),
     ].into_iter().collect();
 
-    state.run_mut(ctx, &program, &uniforms, "buf")?;
+    state.run_mut(&program, &uniforms, "buf")?;
 
     let uniforms2: HashMap<_, _> = vec![
         ("tex", gl::UniformData::Texture("buf")),
         ("time", gl::UniformData::Scalar(time as f32)),
     ].into_iter().collect();
 
-    state.run(ctx, &program, &uniforms2)?;
+    state.run(&program, &uniforms2)?;
 
     Ok(())
 }
