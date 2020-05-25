@@ -1,9 +1,9 @@
 use web_sys::*;
+use wasm_bindgen::prelude::*;
 use std::collections::HashMap;
 
 type Ctx = WebGlRenderingContext;
 
-#[derive(Clone)]
 pub enum AttributeType {
     Vector2, Vector3, Vector4
 }
@@ -14,7 +14,6 @@ pub enum UniformType {
     Vector2,
 }
 
-#[derive(Clone)]
 pub struct AttributeDescription {
     pub name: &'static str,
     pub location: Option<i32>,
@@ -104,11 +103,13 @@ impl Program {
     }
 }
 
+#[wasm_bindgen]
 pub struct Viewport {
     pub w: u32,
     pub h: u32
 }
 
+#[wasm_bindgen]
 pub struct TextureSpec {
     viewport: Viewport,
     handle: WebGlTexture
@@ -120,6 +121,7 @@ pub enum UniformData {
     Texture(&'static str)
 }
 
+#[wasm_bindgen]
 pub struct GlState {
     viewport: Viewport,
     textures: HashMap<&'static str, TextureSpec>,
