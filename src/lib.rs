@@ -1,167 +1,281 @@
-use wasm_bindgen::prelude::*;
-use wasm_bindgen::JsCast;
-use web_sys::{WebGlRenderingContext};
-
+use web_sys::*;
 use std::collections::HashMap;
 
-use std::panic;
-use std::cell::RefCell;
-use std::rc::Rc;
+type Ctx = WebGlRenderingContext;
 
-use console_error_panic_hook;
+#[derive(Clone)]
+pub enum AttributeType {
+    Vector2, Vector3, Vector4
+}
 
-mod gl;
+pub enum UniformType {
+    Sampler2D,
+    Float,
+    Vector2,
+}
 
-macro_rules! log {
-    ( $( $t:tt )* ) => {
-        web_sys::console::log_1(&format!( $( $t )* ).into());
+#[derive(Clone)]
+pub struct AttributeDescription {
+    pub name: &'static str,
+    pub location: Option<i32>,
+    pub t: AttributeType,
+}
+
+impl AttributeDescription {
+    pub fn new(name: &'static str, t: AttributeType) -> AttributeDescription {
+        AttributeDescription { name, location: None, t }
     }
 }
 
-fn display_program(ctx: &WebGlRenderingContext) -> Result<gl::Program, String> {
-    gl::Program::new(
-        ctx,
-        include_str!("../shaders/dummy.vert"),
-        include_str!("../shaders/dummy.frag"),
-        vec![
-            gl::UniformDescription::new("tex", gl::UniformType::Sampler2D),
-            gl::UniformDescription::new("time", gl::UniformType::Float),
-        ],
-        vec![
-            gl::AttributeDescription::new("position", gl::AttributeType::Vector2),
-            gl::AttributeDescription::new("uv", gl::AttributeType::Vector2),
-        ]
-    )
+pub struct UniformDescription {
+    pub name: &'static str,
+    pub location: Option<WebGlUniformLocation>,
+    pub t: UniformType,
 }
 
-fn setup_state(ctx: &WebGlRenderingContext, viewport: gl::Viewport, vertices: [f32; 8], uvs: [f32; 8], indices: [u16; 6]) -> Result<gl::GlState, String> {
-    let mut state = gl::GlState::new(viewport);
+impl UniformDescription {
+    pub fn new (name: &'static str, t: UniformType) -> UniformDescription {
+        UniformDescription { name, location: None, t }
+    }
+}
 
-    let vb: Vec<u8> = vertices.iter().flat_map(|v| v.to_ne_bytes().to_vec()).collect();
-    let uv: Vec<u8> = uvs.iter().flat_map(|u| u.to_ne_bytes().to_vec()).collect();
-    let eb: Vec<u8> = indices.iter().flat_map(|e| e.to_ne_bytes().to_vec()).collect();
+pub struct Program {
+    program: WebGlProgram,
+    attributes: Vec<AttributeDescription>,
+    uniforms: Vec<UniformDescription>,
+}
 
-    let mut tex_byts: Vec<u8> = vec![];
-    let size = 256;
-    for col in 0..size {
-        for row in 0..size {
-            // rgba is 32 bit, thus here we want to encode our data using u32
-            let red_bytes = ((row * size + col) as u32).to_ne_bytes().to_vec();
-            // times 256 to shift to next channel
-            // let green_bytes = ((row * size + col) * 256 as u32).to_ne_bytes().to_vec();
-            //    col
-            //
-            //     |
-            //  
-            //  (0, 0)   ->  row
-            for b in red_bytes {
-                tex_byts.push(b);
+impl Program {
+    pub fn new(
+        ctx: &Ctx,
+        vertex: &str,
+        fragment: &str,
+        unis: Vec<UniformDescription>,
+        attrs: Vec<AttributeDescription>) -> Result<Program, String> {
+
+        let vertex_id = Program::shader(ctx, Ctx::VERTEX_SHADER, vertex)?;
+        let fragment_id = Program::shader(ctx, Ctx::FRAGMENT_SHADER, fragment)?;
+
+        let program = ctx.create_program().ok_or("Failed to create program")?;
+        ctx.attach_shader(&program, &vertex_id);
+        ctx.attach_shader(&program, &fragment_id);
+        ctx.link_program(&program);
+
+        let (attributes_r, errors): (Vec<_>, Vec<_>) = attrs.into_iter().map(|a| {
+            let loc = ctx.get_attrib_location(&program, a.name);
+            if loc >= 0 {
+                Ok(AttributeDescription { location: Some(loc), .. a })
+            } else {
+                Err(format!("Failed to locate attrib {}", a.name))
+            }
+        }).partition(Result::is_ok);
+
+        if !errors.is_empty() {
+            let msgs: Vec<String> = errors.into_iter().flat_map(|e| e.err()).collect();
+
+            Err(msgs.join("-"))
+        } else {
+            let attributes = attributes_r.into_iter().flat_map(|a| a).collect();
+
+            // todo: similar checks for uniforms
+            let uniforms: Vec<UniformDescription> = unis.into_iter().flat_map(|u| {
+                ctx.get_uniform_location(&program, u.name).map(|u_loc| UniformDescription { location: Some(u_loc), .. u })
+            }).collect();
+
+            Ok(Program { program, attributes, uniforms })
+        }
+    }
+
+    fn shader(ctx: &Ctx, shader_type: u32, source: &str) -> Result<WebGlShader, String> {
+        let shader = ctx
+            .create_shader(shader_type).ok_or(format!("Failed to create shader {}", shader_type))?;
+        ctx.shader_source(&shader, source);
+        ctx.compile_shader(&shader);
+
+        if ctx
+            .get_shader_parameter(&shader, Ctx::COMPILE_STATUS)
+            .as_bool()
+            .unwrap_or(false)
+        {
+            Ok(shader)
+        } else {
+            Err(format!("Failed to compile shader {}", shader_type))
+        }
+    }
+}
+
+pub struct Viewport {
+    pub w: u32,
+    pub h: u32
+}
+
+pub struct TextureSpec {
+    viewport: Viewport,
+    handle: WebGlTexture
+}
+
+pub enum UniformData {
+    Scalar(f32),
+    Vector2([f32; 2]),
+    Texture(&'static str)
+}
+
+pub struct GlState {
+    viewport: Viewport,
+    textures: HashMap<&'static str, TextureSpec>,
+    vertex_buffers: HashMap<&'static str, WebGlBuffer>,
+    element_buffer: Option<WebGlBuffer>,
+    element_buffer_size: usize,
+}
+
+impl GlState {
+    pub fn new(viewport: Viewport) -> GlState {
+        GlState {
+            viewport,
+            textures: HashMap::new(),
+            vertex_buffers: HashMap::new(),
+            element_buffer: None,
+            element_buffer_size: 0
+        }
+    }
+
+    pub fn vertex_buffer(&mut self, ctx: &Ctx, name: &'static str, data: &[u8]) -> Result<&mut Self, String> {
+        let buffer = ctx.create_buffer().ok_or(format!("Failed to create buffer for {}", name))?;
+        ctx.bind_buffer(Ctx::ARRAY_BUFFER, Some(&buffer));
+        ctx.buffer_data_with_u8_array(Ctx::ARRAY_BUFFER, data, Ctx::STATIC_DRAW);
+
+        self.vertex_buffers.insert(name, buffer);
+        Ok(self)
+    }
+
+    // todo: should be put to run & draw?
+    pub fn element_buffer(&mut self, ctx: &Ctx, data: &[u8]) -> Result<&mut Self, String> {
+        let buffer = ctx.create_buffer().ok_or("Failed to create element buffer")?;
+        ctx.bind_buffer(Ctx::ELEMENT_ARRAY_BUFFER, Some(&buffer));
+        ctx.buffer_data_with_u8_array(Ctx::ELEMENT_ARRAY_BUFFER, data, Ctx::STATIC_DRAW);
+
+        self.element_buffer = Some(buffer);
+        self.element_buffer_size = data.len() / 2; // assuming UNSIGNED_SHORTS
+        Ok(self)
+    }
+
+    pub fn texture(&mut self, ctx: &Ctx, name: &'static str, data: Option<&[u8]>, w: u32, h: u32) -> Result<&mut Self, String> {
+        let tex = ctx.create_texture().ok_or(format!("Failed to create texture for {}", name))?;
+        ctx.bind_texture(Ctx::TEXTURE_2D, Some(&tex));
+        ctx.tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_u8_array(
+            Ctx::TEXTURE_2D,
+            0,
+            Ctx::RGBA as i32,
+            w as i32,
+            h as i32,
+            0,
+            Ctx::RGBA,
+            Ctx::UNSIGNED_BYTE,
+            data
+        ).map_err(|e| format!("Failed to send image data for {} {:?}", name, e))?;
+
+        ctx.tex_parameteri(Ctx::TEXTURE_2D, Ctx::TEXTURE_MIN_FILTER, Ctx::NEAREST as i32);
+        ctx.tex_parameteri(Ctx::TEXTURE_2D, Ctx::TEXTURE_MAG_FILTER, Ctx::NEAREST as i32);
+        ctx.tex_parameteri(Ctx::TEXTURE_2D, Ctx::TEXTURE_WRAP_T, Ctx::CLAMP_TO_EDGE as i32);
+        ctx.tex_parameteri(Ctx::TEXTURE_2D, Ctx::TEXTURE_WRAP_S, Ctx::CLAMP_TO_EDGE as i32);
+
+        self.textures.insert(name, TextureSpec {
+            viewport: Viewport { w, h },
+            handle: tex
+        });
+        Ok(self)
+    }
+
+    pub fn run(&self, ctx: &Ctx, program: &Program, uni_values: &HashMap<&'static str, UniformData>) -> Result<&Self, String> {
+        if self.element_buffer.is_none() {
+            Err("Element buffer is not set")?
+        }
+
+        ctx.use_program(Some(&program.program));
+
+        self.setup_attributes(ctx, &program.attributes)?;
+        self.setup_uniforms(ctx, &program.uniforms, uni_values)?;
+
+        ctx.draw_elements_with_i32(
+            Ctx::TRIANGLES,
+            self.element_buffer_size as i32,
+            Ctx::UNSIGNED_SHORT,
+            0);
+
+        Ok(self)
+    }
+
+    pub fn run_mut(&self, ctx: &Ctx, program: &Program, uni_values: &HashMap<&'static str, UniformData>,
+                   name: &'static str) -> Result<&Self, String> {
+        let tex = self.textures.get(name).ok_or(format!("Can't render to {} no such texture", name))?;
+
+        let fb = ctx.create_framebuffer().ok_or(format!("Failed to create frame buffer for {}", name))?;
+        ctx.bind_framebuffer(Ctx::FRAMEBUFFER, Some(&fb));
+        ctx.framebuffer_texture_2d(Ctx::FRAMEBUFFER, Ctx::COLOR_ATTACHMENT0, Ctx::TEXTURE_2D, Some(&tex.handle), 0);
+        ctx.viewport(0, 0, tex.viewport.w as i32, tex.viewport.h as i32);
+
+        self.run(&ctx, &program, &uni_values)?;
+
+        ctx.bind_framebuffer(Ctx::FRAMEBUFFER, None);
+        ctx.viewport(0, 0, self.viewport.w as i32, self.viewport.h as i32);
+
+        Ok(self)
+    }
+
+    fn setup_attributes(&self, ctx: &Ctx, attributes: &Vec<AttributeDescription>) -> Result<&Self, String> {
+        let mut vert_array_idx = 0;
+        for att in attributes {
+            let idx = att.location.ok_or(format!("Location for attribute {} is not set", att.name))? as u32;
+
+            let buffer = self.vertex_buffers.get(att.name).ok_or(format!("Vertex buffer for {} is not set", att.name))?;
+            ctx.bind_buffer(Ctx::ARRAY_BUFFER, Some(&buffer));
+
+            let size: i32 = match att.t {
+                AttributeType::Vector2 => 2,
+                AttributeType::Vector3 => 3,
+                AttributeType::Vector4 => 4,
+            } as i32;
+
+            ctx.enable_vertex_attrib_array(vert_array_idx);
+            ctx.vertex_attrib_pointer_with_i32(idx, size, Ctx::FLOAT, false, 0, 0);
+
+            vert_array_idx += 1;
+        }
+
+        Ok(self)
+    }
+
+    // todo: keep index to only update when new textures are coming?
+    fn setup_uniforms(&self, ctx: &Ctx, uniforms: &Vec<UniformDescription>, uniform_values: &HashMap<&'static str, UniformData>) -> Result<&Self, String> {
+        let mut tex_inc = 0;
+
+        for uni in uniforms {
+            let loc = uni.location.clone().ok_or(format!("Location for uniform {} is not set", uni.name))?;
+            match uni.t {
+                UniformType::Float =>
+                    match uniform_values.get(uni.name).ok_or(format!("Missing value for scalar uniform {}", uni.name))? {
+                        UniformData::Scalar(v) => ctx.uniform1f(Some(&loc), v.clone()),
+                        _ => ()
+                    },
+                UniformType::Vector2 =>
+                    match uniform_values.get(uni.name).ok_or(format!("Missing value for vector uniform {}", uni.name))? {
+                        UniformData::Vector2(v) => ctx.uniform2fv_with_f32_array(Some(&loc), v),
+                        _ => ()
+                    },
+                UniformType::Sampler2D => {
+                    match uniform_values.get(uni.name).ok_or(format!("Missing value for texture uniform {}", uni.name))? {
+                        UniformData::Texture(name) => {
+                            ctx.active_texture(Ctx::TEXTURE0 + tex_inc);
+                            let tex = self.textures.get(name).ok_or(format!("Missing texture {} references from uniform {}", name, uni.name))?;
+                            ctx.bind_texture(Ctx::TEXTURE_2D, Some(&tex.handle));
+                            ctx.uniform1i(Some(&loc), tex_inc as i32);
+                            tex_inc += 1;
+                        },
+                        _ => ()
+                    }
+                }
             }
         }
+        Ok(self)
     }
-
-    state
-        .vertex_buffer(ctx, "position", vb.as_slice())?
-        .vertex_buffer(ctx, "uv", uv.as_slice())?
-        .texture(ctx, "tex", Some(tex_byts.as_slice()), size, size)?
-        .texture(&ctx, "buf", None, 256, 256)?
-        .element_buffer(ctx, eb.as_slice())?;
-
-    Ok(state)
-}
-
-fn setup_scene(ctx: &WebGlRenderingContext, viewport: gl::Viewport) -> Result<(gl::Program, gl::GlState), String> {
-    let program = display_program(&ctx)?;
-
-    let vertices: [f32; 8] = [
-        -0.9, -0.9,
-        0.9, -0.9,
-        0.9, 0.9,
-        -0.9, 0.9
-    ];
-    let uvs: [f32; 8] = [
-        0.0, 0.0,
-        1.0, 0.0,
-        1.0, 1.0,
-        0.0, 1.0
-    ];
-    let indices: [u16; 6] = [0, 1, 2, 2, 3, 0];
-
-    let state = setup_state(&ctx, viewport, vertices, uvs, indices)?;
-
-    Ok((program, state))
-}
-
-fn animation_step(ctx: &WebGlRenderingContext, program: &gl::Program, state: &gl::GlState, time: u32) -> Result<(), String> {
-    let uniforms: HashMap<_, _> = vec![
-        ("tex", gl::UniformData::Texture("tex")),
-        ("time", gl::UniformData::Scalar(time as f32)),
-    ].into_iter().collect();
-
-    state.run_mut(ctx, &program, &uniforms, "buf")?;
-
-    let uniforms2: HashMap<_, _> = vec![
-        ("tex", gl::UniformData::Texture("buf")),
-        ("time", gl::UniformData::Scalar(time as f32)),
-    ].into_iter().collect();
-
-    state.run(ctx, &program, &uniforms2)?;
-
-    Ok(())
-}
-
-fn window() -> web_sys::Window {
-    web_sys::window().expect("no global `window` exists")
-}
-
-fn request_animation_frame(f: &Closure<dyn FnMut()>) {
-    window()
-        .request_animation_frame(f.as_ref().unchecked_ref())
-        .expect("should register `requestAnimationFrame` OK");
-}
-
-fn prepare_canvas() -> Result<(WebGlRenderingContext, gl::Viewport), JsValue> {
-    let document = window().document().ok_or("Expected document")?;
-    let canvas = document.get_element_by_id("canvas").ok_or("Missig 'canvas' element")?;
-    let canvas: web_sys::HtmlCanvasElement = canvas.dyn_into::<web_sys::HtmlCanvasElement>()?;
-
-    let context = canvas
-        .get_context("webgl")?
-        .ok_or("WebGl 1.0 not supported")?
-        .dyn_into::<WebGlRenderingContext>()?;
-
-    context.clear_color(0.0, 0.0, 0.0, 1.0);
-    context.clear(WebGlRenderingContext::COLOR_BUFFER_BIT);
-
-    Ok((context, gl::Viewport { w: canvas.width(), h: canvas.height() }))
-}
-
-#[wasm_bindgen(start)]
-pub fn start() -> Result<(), JsValue> {
-    panic::set_hook(Box::new(console_error_panic_hook::hook));
-    let (context, viewport) = prepare_canvas()?;
-
-    let (p, state) = setup_scene(&context, viewport)?;
-
-    let f = Rc::new(RefCell::new(None));
-    let g = f.clone();
-
-    let mut time = 0;
-    *g.borrow_mut() = Some(Closure::wrap(Box::new(move || {
-        if time > 300 {
-            let _ = f.borrow_mut().take();
-            return;
-        }
-        // todo: get delta since last frame?
-        match animation_step(&context, &p, &state, time) {
-            Ok(_) => (),
-            Err(message) => log!("Error running animation step: {}", message),
-        }
-        time += 1;
-        request_animation_frame(f.borrow().as_ref().unwrap());
-    }) as Box<dyn FnMut()>));
-
-    request_animation_frame(g.borrow().as_ref().unwrap());
-
-    Ok(())
 }
