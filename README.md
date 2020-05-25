@@ -1,7 +1,11 @@
 # WebGL State Machine in Rust
 
-TODO: description
-TODO: main concepts (Program, GlState)
+An opinionated wrapper for low-level WebGL API with intention to provide a bit of explicit state management with reasonable defaults.
+
+## Key concepts
+
+- Program - GL program description including vertex shader, fragment shader, attributes and uniforms. Program takes care of compiling shaders, getting attributes / uniforms locations and finally disposing resources once it goes out of scope.
+- GlState - container holding references to data that was created / sent to GPU. GlState's main purpose to keep track of what is the current reference of various bits in the state machine (array buffer, frame buffer, active texture, etc.) and adjust accordingly. It also implements housekeeping for unused resources.
 
 ## Usage example
 
@@ -38,28 +42,16 @@ state
     .vertex_buffer("position", vb)?
     .vertex_buffer("uv", uv)?
     .texture("tex", Some(tex_byts), size, size)?
-    .texture("buf", None, size, size)?
     .element_buffer(eb)?;
 ```
 
-Use program & state together
+Run program on state supplying necessary inputs
 
 ```rust
-fn animation_step(program: &gl::Program, state: &gl::GlState, time: u32) -> Result<(), String> {
-    let uniforms: HashMap<_, _> = vec![
-        ("tex", gl::UniformData::Texture("tex")),
-        ("time", gl::UniformData::Scalar(time as f32)),
-    ].into_iter().collect();
+let uniforms: HashMap<_, _> = vec![
+    ("tex", gl::UniformData::Texture("tex")),
+    ("time", gl::UniformData::Scalar(time as f32)),
+].into_iter().collect();
 
-    state.run_mut(&program, &uniforms, "buf")?;
-
-    let uniforms2: HashMap<_, _> = vec![
-        ("tex", gl::UniformData::Texture("buf")),
-        ("time", gl::UniformData::Scalar(time as f32)),
-    ].into_iter().collect();
-
-    state.run(&program, &uniforms2)?;
-
-    Ok(())
-}
+state.run(&program, &uniforms)?;
 ```
