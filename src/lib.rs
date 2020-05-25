@@ -55,7 +55,6 @@ impl Program {
 
         let vertex_id = Program::shader(ctx, Ctx::VERTEX_SHADER, vertex)?;
         let fragment_id = Program::shader(ctx, Ctx::FRAGMENT_SHADER, fragment)?;
-        // todo: do we need do keep those refs to free them later on?
 
         let program = ctx.create_program().ok_or("Failed to create program")?;
         ctx.attach_shader(&program, &vertex_id);
