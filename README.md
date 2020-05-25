@@ -1,11 +1,12 @@
 # WebGL State Machine in Rust
 
 An opinionated wrapper for low-level WebGL API with intention to provide a bit of explicit state management with reasonable defaults.
+Primary goals for this library is to support WebGL 1.0 so it is built on top of raw bindings from `web-sys` crate.
 
 ## Key concepts
 
-- Program - GL program description including vertex shader, fragment shader, attributes and uniforms. Program takes care of compiling shaders, getting attributes / uniforms locations and finally disposing resources once it goes out of scope.
-- GlState - container holding references to data that was created / sent to GPU. GlState's main purpose to keep track of what is the current reference of various bits in the state machine (array buffer, frame buffer, active texture, etc.) and adjust accordingly. It also implements housekeeping for unused resources.
+- **Program** - GL program description including vertex shader, fragment shader, attributes and uniforms. Program takes care of compiling shaders, getting attributes / uniforms locations and finally disposing resources once it goes out of scope.
+- **GlState** - container holding references to data that was created / sent to GPU. GlState's main purpose to keep track of various bits in the state machine (array buffer, frame buffer, active texture, etc.) and adjust accordingly. It also implements housekeeping for unused resources.
 
 ## Usage example
 
