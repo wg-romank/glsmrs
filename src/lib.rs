@@ -62,24 +62,21 @@ impl Program {
         ctx.attach_shader(&program, &fragment_id);
         ctx.link_program(&program);
 
-        // todo: fix this when type ascription is in
-        let attributes_try: Result<_, _> = attrs.into_iter().map(|a| {
+        let attributes = attrs.into_iter().map(|a| {
             let loc = ctx.get_attrib_location(&program, a.name);
             if loc >= 0 {
                 Ok(AttributeDescription { location: Some(loc), .. a })
             } else {
                 Err(format!("Failed to locate attrib {}", a.name))
             }
-        }).collect();
-        let attributes = attributes_try?;
+        }).collect::<Result<_, _>>()?;
 
-        let uniforms_try: Result<_, _> = unis.into_iter().map(|u| {
+        let uniforms = unis.into_iter().map(|u| {
             match ctx.get_uniform_location(&program, u.name) {
                 Some(u_loc) => Ok(UniformDescription { location: Some(u_loc), .. u }),
                 None => Err(format!("Failed to locate uniform {}", u.name))
             }
-        }).collect();
-        let uniforms = uniforms_try?;
+        }).collect::<Result<_, _>>()?;
 
         Ok(Program { ctx: ctx.clone(), program, attributes, uniforms })
     }
