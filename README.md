@@ -20,7 +20,7 @@ Create a program description
 
 ```rust
 gl::Program::new(
-    ctx,
+    &ctx,
     include_str!("../shaders/dummy.vert"),
     include_str!("../shaders/dummy.frag"),
     vec![
@@ -37,9 +37,7 @@ gl::Program::new(
 Initialize & prepare state of GLSM
 
 ```rust
-let mut state = gl::GlState::new(&ctx, viewport);
-
-state
+let state = gl::GlState::new(&ctx, viewport)
     .vertex_buffer("position", vb)?
     .vertex_buffer("uv", uv)?
     .texture("tex", Some(tex_byts), size, size)?
