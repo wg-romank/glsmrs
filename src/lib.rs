@@ -38,6 +38,7 @@ impl UniformDescription {
     }
 }
 
+#[wasm_bindgen]
 pub struct Program {
     ctx: Ctx,
     program: WebGlProgram,
