@@ -62,29 +62,26 @@ impl Program {
         ctx.attach_shader(&program, &fragment_id);
         ctx.link_program(&program);
 
-        let (attributes_r, errors): (Vec<_>, Vec<_>) = attrs.into_iter().map(|a| {
+        // todo: fix this when type ascription is in
+        let attributes_try: Result<_, _> = attrs.into_iter().map(|a| {
             let loc = ctx.get_attrib_location(&program, a.name);
             if loc >= 0 {
                 Ok(AttributeDescription { location: Some(loc), .. a })
             } else {
                 Err(format!("Failed to locate attrib {}", a.name))
             }
-        }).partition(Result::is_ok);
+        }).collect();
+        let attributes = attributes_try?;
 
-        if !errors.is_empty() {
-            let msgs: Vec<String> = errors.into_iter().flat_map(|e| e.err()).collect();
+        let uniforms_try: Result<_, _> = unis.into_iter().map(|u| {
+            match ctx.get_uniform_location(&program, u.name) {
+                Some(u_loc) => Ok(UniformDescription { location: Some(u_loc), .. u }),
+                None => Err(format!("Failed to locate uniform {}", u.name))
+            }
+        }).collect();
+        let uniforms = uniforms_try?;
 
-            Err(msgs.join("-"))
-        } else {
-            let attributes = attributes_r.into_iter().flat_map(|a| a).collect();
-
-            // todo: similar checks for uniforms
-            let uniforms: Vec<UniformDescription> = unis.into_iter().flat_map(|u| {
-                ctx.get_uniform_location(&program, u.name).map(|u_loc| UniformDescription { location: Some(u_loc), .. u })
-            }).collect();
-
-            Ok(Program { ctx: ctx.clone(), program, attributes, uniforms })
-        }
+        Ok(Program { ctx: ctx.clone(), program, attributes, uniforms })
     }
 
     fn shader(ctx: &Ctx, shader_type: u32, source: &str) -> Result<WebGlShader, String> {
@@ -181,7 +178,6 @@ impl GlState {
         Ok(self)
     }
 
-    // todo: should be put to run & draw?
     pub fn element_buffer(&mut self, data: &[u8]) -> Result<&mut Self, String> {
         self.delete_element_buffer()?;
 
