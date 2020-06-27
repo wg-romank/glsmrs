@@ -44,6 +44,7 @@ pub struct Program {
     program: WebGlProgram,
     attributes: Vec<AttributeDescription>,
     uniforms: Vec<UniformDescription>,
+    mode: u32,
 }
 
 impl Program {
@@ -52,7 +53,19 @@ impl Program {
         vertex: &str,
         fragment: &str,
         unis: Vec<UniformDescription>,
-        attrs: Vec<AttributeDescription>) -> Result<Program, String> {
+        attrs: Vec<AttributeDescription>
+    ) -> Result<Program, String> {
+        Program::new_with_mode(ctx, vertex, fragment, unis, attrs, Ctx::TRIANGLES)
+    }
+
+    pub fn new_with_mode(
+        ctx: &Ctx,
+        vertex: &str,
+        fragment: &str,
+        unis: Vec<UniformDescription>,
+        attrs: Vec<AttributeDescription>,
+        mode: u32
+    ) -> Result<Program, String> {
 
         let vertex_id = Program::shader(ctx, Ctx::VERTEX_SHADER, vertex)?;
         let fragment_id = Program::shader(ctx, Ctx::FRAGMENT_SHADER, fragment)?;
@@ -78,7 +91,7 @@ impl Program {
             }
         }).collect::<Result<_, _>>()?;
 
-        Ok(Program { ctx: ctx.clone(), program, attributes, uniforms })
+        Ok(Program { ctx: ctx.clone(), program, attributes, uniforms, mode })
     }
 
     fn shader(ctx: &Ctx, shader_type: u32, source: &str) -> Result<WebGlShader, String> {
@@ -234,7 +247,7 @@ impl GlState {
         self.setup_uniforms(&program.uniforms, uni_values)?;
 
         self.ctx.draw_elements_with_i32(
-            Ctx::TRIANGLES,
+            program.mode,
             self.element_buffer_size as i32,
             Ctx::UNSIGNED_SHORT,
             0);
