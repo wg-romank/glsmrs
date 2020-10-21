@@ -12,6 +12,7 @@ pub enum UniformType {
     Sampler2D,
     Float,
     Vector2,
+    Vector4,
 }
 
 pub struct AttributeDescription {
@@ -135,6 +136,7 @@ pub struct TextureSpec {
 pub enum UniformData {
     Scalar(f32),
     Vector2([f32; 2]),
+    Vector4([f32; 4]),
     Texture(&'static str)
 }
 
@@ -310,6 +312,11 @@ impl GlState {
                 UniformType::Vector2 =>
                     match uniform_values.get(uni.name).ok_or(format!("Missing value for vector uniform {}", uni.name))? {
                         UniformData::Vector2(v) => self.ctx.uniform2fv_with_f32_array(Some(&loc), v),
+                        _ => ()
+                    },
+                UniformType::Vector4 =>
+                    match uniform_values.get(uni.name).ok_or(format!("Missing value for vector uniform {}", uni.name))? {
+                        UniformData::Vector4(v) => self.ctx.uniform4fv_with_f32_array(Some(&loc), v),
                         _ => ()
                     },
                 UniformType::Sampler2D => {
