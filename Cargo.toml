@@ -3,6 +3,9 @@ name = "glsmrs"
 version = "0.1.0"
 authors = ["Roman Kotelnikov <roman.kotelnikov@gmail.com>"]
 edition = "2018"
+description = "Opinionated thin wrapper over WebGL 1.0 API"
+license = "MIT"
+repository = "https://github.com/wg-romank/glsmrs"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
