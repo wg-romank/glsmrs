@@ -1,6 +1,6 @@
 # WebGL State Machine in Rust
 
-![Build](https://github.com/wg-romank/glsmrs/workflows/Build/badge.svg?branch=master)
+![Build](https://github.com/wg-romank/glsmrs/workflows/Build/badge.svg?branch=master) ![Publish](https://github.com/wg-romank/glsmrs/workflows/Publish/badge.svg?branch=master)
 
 An opinionated wrapper for low-level WebGL API with intention to provide a bit of explicit state management with reasonable defaults.
 Primary goals for this library is to support WebGL 1.0 so it is built on top of raw bindings from `web-sys` crate.
