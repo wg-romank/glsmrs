@@ -1,0 +1,23 @@
+name: Publish
+
+on:
+  release:
+    types: [published]
+  
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Publish to crates.io
+      - shell: bash
+        env:
+          CARGO_TOKEN: ${{ secrets.cargo_token }}
+        run: |
+          cargo login "$CARGO_TOKEN"
+          cargo publish
