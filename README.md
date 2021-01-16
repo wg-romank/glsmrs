@@ -17,7 +17,7 @@ Get it from crates.io
 ```toml
 [dependencies]
 # ...
-glsmrs = "0.1.0"
+glsmrs = "0.1.1"
 ```
 
 Import crate
@@ -65,4 +65,4 @@ let uniforms: HashMap<_, _> = vec![
 state.run(&program, &uniforms)?;
 ```
 
-For example project using this library check out [https://github.com/wg-romank/wasm-game-of-life] a tweaked version of original WASM tutorial that runs entierly on GPU.
+For example project using this library check out [ https://github.com/wg-romank/wasm-game-of-life ] a tweaked version of original WASM tutorial that runs entierly on GPU.
