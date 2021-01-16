@@ -12,6 +12,14 @@ Primary goals for this library is to support WebGL 1.0 so it is built on top of 
 
 ## Usage example
 
+Get it from crates.io
+
+```toml
+[dependencies]
+# ...
+glsmrs = "0.1.0"
+```
+
 Import crate
 
 ```rust
