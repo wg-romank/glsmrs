@@ -3,7 +3,6 @@ name: Publish
 on:
   release:
     types: [published]
-  
   workflow_dispatch:
 
 jobs:
@@ -12,7 +11,7 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - name: Publish to crates.io
-      - shell: bash
+        shell: bash
         env:
           CARGO_TOKEN: ${{ secrets.cargo_token }}
         run: |
