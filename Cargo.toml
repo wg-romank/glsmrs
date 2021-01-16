@@ -6,6 +6,7 @@ edition = "2018"
 description = "Opinionated thin wrapper over WebGL 1.0 API"
 license = "MIT"
 repository = "https://github.com/wg-romank/glsmrs"
+keywords = ["wasm", "webgl", "shaders", "glsl", "webassembly"]
 
 [lib]
 crate-type = ["cdylib", "rlib"]
