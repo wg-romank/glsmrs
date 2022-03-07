@@ -1,8 +1,9 @@
 use web_sys::*;
-use std::collections::HashMap;
+use std::{collections::HashMap, rc::Rc};
 
 pub mod util;
 pub mod texture;
+pub mod mesh;
 
 use crate::texture::*;
 
@@ -126,7 +127,7 @@ pub enum UniformData {
     Scalar(f32),
     Vector2([f32; 2]),
     Vector4([f32; 4]),
-    Texture(UploadedTexture),
+    Texture(Rc<UploadedTexture>),
 }
 
 pub struct GlState {

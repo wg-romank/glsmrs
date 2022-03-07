@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use web_sys::{WebGlTexture, WebGlFramebuffer};
 
 use crate::Ctx;
@@ -18,6 +20,7 @@ impl Viewport {
 
 #[derive(Clone)]
 pub struct UploadedTexture {
+    ctx: Rc<Ctx>,
     handle: WebGlTexture,
 }
 
@@ -27,12 +30,11 @@ impl UploadedTexture {
     }
 }
 
-// todo:
-// impl Drop for Rc<UploadedTexture> {
-//     fn drop(&mut self) {
-//         self.ctx.delete_texture(Some(&self.handle));
-//     }
-// }
+impl Drop for UploadedTexture {
+    fn drop(&mut self) {
+        self.ctx.delete_texture(Some(&self.handle));
+    }
+}
 
 pub struct TextureSpec {
     pub color_format: u32,
@@ -44,7 +46,7 @@ pub struct TextureSpec {
 }
 
 impl TextureSpec {
-    pub fn upload(&self, ctx: &Ctx, data: Option<&[u8]>) -> Result<UploadedTexture, String> {
+    pub fn upload(&self, ctx: &Rc<Ctx>, data: Option<&[u8]>) -> Result<UploadedTexture, String> {
         let handle = ctx.create_texture().ok_or(format!("Failed to create texture"))?;
         ctx.bind_texture(Ctx::TEXTURE_2D, Some(&handle));
         ctx.tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_u8_array(
@@ -66,6 +68,7 @@ impl TextureSpec {
 
         Ok(
             UploadedTexture {
+                ctx: ctx.clone(),
                 handle
             }
         )
@@ -73,18 +76,20 @@ impl TextureSpec {
 }
 
 pub struct Framebuffer {
+    ctx: Rc<Ctx>,
     viewport: Viewport,
     handle: WebGlFramebuffer,
-    pub color_slot: Option<UploadedTexture>,
-    pub depth_slot: Option<UploadedTexture>,
+    pub color_slot: Option<Rc<UploadedTexture>>,
+    pub depth_slot: Option<Rc<UploadedTexture>>,
 }
 
 impl Framebuffer {
-    pub fn new(ctx: &Ctx, viewport: Viewport) -> Result<Self, String> {
+    pub fn new(ctx: &Rc<Ctx>, viewport: Viewport) -> Result<Self, String> {
         let handle = ctx.create_framebuffer().ok_or(format!("Failed to create frame buffer"))?;
 
         Ok(
             Self {
+                ctx: ctx.clone(),
                 viewport,
                 handle,
                 color_slot: None,
@@ -96,7 +101,7 @@ impl Framebuffer {
     pub fn with_color_slot(mut self, ctx: &Ctx, tex: UploadedTexture) -> Self {
         self.bind(ctx);
         ctx.framebuffer_texture_2d(Ctx::FRAMEBUFFER, Ctx::COLOR_ATTACHMENT0, Ctx::TEXTURE_2D, Some(&tex.handle), 0);
-        self.color_slot = Some(tex);
+        self.color_slot = Some(Rc::new(tex));
 
         self
     }
@@ -107,9 +112,8 @@ impl Framebuffer {
     }
 }
 
-// todo:
-// impl Drop for Rc<Framebuffer> {
-//     fn drop(&mut self) {
-//         self.ctx.delete_framebuffer(Some(&self.handle));
-//     }
-// }
+impl Drop for Framebuffer {
+    fn drop(&mut self) {
+        self.ctx.delete_framebuffer(Some(&self.handle));
+    }
+}
