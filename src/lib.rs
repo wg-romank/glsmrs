@@ -1,6 +1,10 @@
 use web_sys::*;
-use wasm_bindgen::prelude::*;
 use std::collections::HashMap;
+
+pub mod util;
+pub mod texture;
+
+use crate::texture::*;
 
 type Ctx = WebGlRenderingContext;
 
@@ -39,7 +43,6 @@ impl UniformDescription {
     }
 }
 
-#[wasm_bindgen]
 pub struct Program {
     ctx: Ctx,
     program: WebGlProgram,
@@ -119,32 +122,16 @@ impl Drop for Program {
     }
 }
 
-#[wasm_bindgen]
-#[derive(Clone)]
-pub struct Viewport {
-    pub w: u32,
-    pub h: u32
-}
-
-#[wasm_bindgen]
-#[derive(Clone)]
-pub struct TextureSpec {
-    viewport: Viewport,
-    handle: WebGlTexture
-}
-
 pub enum UniformData {
     Scalar(f32),
     Vector2([f32; 2]),
     Vector4([f32; 4]),
-    Texture(&'static str)
+    Texture(UploadedTexture),
 }
 
-#[wasm_bindgen]
 pub struct GlState {
     ctx: Ctx,
     viewport: Viewport,
-    textures: HashMap<&'static str, TextureSpec>,
     vertex_buffers: HashMap<&'static str, WebGlBuffer>,
     element_buffer: Option<WebGlBuffer>,
     element_buffer_size: usize,
@@ -155,7 +142,6 @@ impl GlState {
         GlState {
             ctx: ctx.clone(),
             viewport,
-            textures: HashMap::new(),
             vertex_buffers: HashMap::new(),
             element_buffer: None,
             element_buffer_size: 0
@@ -202,42 +188,6 @@ impl GlState {
         Ok(self)
     }
 
-    pub fn delete_texture(&mut self, name: &'static str) -> Result<&mut Self, String> {
-        self.ctx.delete_texture(self.textures.get(name).map(|ts| &ts.handle));
-        self.textures.remove(name);
-
-        Ok(self)
-    }
-
-    pub fn texture(&mut self, name: &'static str, data: Option<&[u8]>, w: u32, h: u32) -> Result<&mut Self, String> {
-        self.delete_texture(name)?;
-
-        let tex = self.ctx.create_texture().ok_or(format!("Failed to create texture for {}", name))?;
-        self.ctx.bind_texture(Ctx::TEXTURE_2D, Some(&tex));
-        self.ctx.tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_u8_array(
-            Ctx::TEXTURE_2D,
-            0,
-            Ctx::RGBA as i32,
-            w as i32,
-            h as i32,
-            0,
-            Ctx::RGBA,
-            Ctx::UNSIGNED_BYTE,
-            data
-        ).map_err(|e| format!("Failed to send image data for {} {:?}", name, e))?;
-
-        self.ctx.tex_parameteri(Ctx::TEXTURE_2D, Ctx::TEXTURE_MIN_FILTER, Ctx::NEAREST as i32);
-        self.ctx.tex_parameteri(Ctx::TEXTURE_2D, Ctx::TEXTURE_MAG_FILTER, Ctx::NEAREST as i32);
-        self.ctx.tex_parameteri(Ctx::TEXTURE_2D, Ctx::TEXTURE_WRAP_T, Ctx::CLAMP_TO_EDGE as i32);
-        self.ctx.tex_parameteri(Ctx::TEXTURE_2D, Ctx::TEXTURE_WRAP_S, Ctx::CLAMP_TO_EDGE as i32);
-
-        self.textures.insert(name, TextureSpec {
-            viewport: Viewport { w, h },
-            handle: tex
-        });
-        Ok(self)
-    }
-
     pub fn run(&self, program: &Program, uni_values: &HashMap<&'static str, UniformData>) -> Result<&Self, String> {
         if self.element_buffer.is_none() {
             Err("Element buffer is not set")?
@@ -257,14 +207,12 @@ impl GlState {
         Ok(self)
     }
 
-    pub fn run_mut(&self, program: &Program, uni_values: &HashMap<&'static str, UniformData>,
-                   name: &'static str) -> Result<&Self, String> {
-        let tex = self.textures.get(name).ok_or(format!("Can't render to {} no such texture", name))?;
-
-        let fb = self.ctx.create_framebuffer().ok_or(format!("Failed to create frame buffer for {}", name))?;
-        self.ctx.bind_framebuffer(Ctx::FRAMEBUFFER, Some(&fb));
-        self.ctx.framebuffer_texture_2d(Ctx::FRAMEBUFFER, Ctx::COLOR_ATTACHMENT0, Ctx::TEXTURE_2D, Some(&tex.handle), 0);
-        self.ctx.viewport(0, 0, tex.viewport.w as i32, tex.viewport.h as i32);
+    pub fn run_mut<'a>(
+        &self, program: &Program,
+        uni_values: &HashMap<&'static str, UniformData>,
+        output: &mut Framebuffer,
+    ) -> Result<&Self, String> {
+        output.bind(&self.ctx);
 
         self.run(&program, &uni_values)?;
 
@@ -321,10 +269,9 @@ impl GlState {
                     },
                 UniformType::Sampler2D => {
                     match uniform_values.get(uni.name).ok_or(format!("Missing value for texture uniform {}", uni.name))? {
-                        UniformData::Texture(name) => {
+                        UniformData::Texture(tex) => {
                             self.ctx.active_texture(Ctx::TEXTURE0 + tex_inc);
-                            let tex = self.textures.get(name).ok_or(format!("Missing texture {} references from uniform {}", name, uni.name))?;
-                            self.ctx.bind_texture(Ctx::TEXTURE_2D, Some(&tex.handle));
+                            tex.bind(&self.ctx);
 
                             // todo: double check on safely disposing uniforms data
                             self.ctx.uniform1i(Some(&loc), tex_inc as i32);
@@ -343,10 +290,6 @@ impl Drop for GlState {
     fn drop(&mut self) {
         for vb in self.vertex_buffers.clone() {
             self.delete_vertex_buffer(vb.0).expect(format!("Failed to delete vertex buffer {}", vb.0).as_str());
-        }
-
-        for tex in self.textures.clone() {
-            self.delete_texture(tex.0).expect(format!("Failed to delete texture {}", tex.0).as_str());
         }
 
         self.delete_element_buffer().expect("Failed to delete element buffer");

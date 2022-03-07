@@ -25,4 +25,7 @@ features = [
   'WebGlProgram',
   'WebGlShader',
   'WebGlFramebuffer',
+  'HtmlCanvasElement',
+  'Window',
+  'Document',
 ]
