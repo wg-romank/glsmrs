@@ -1,3 +1,4 @@
+use mesh::Mesh;
 use web_sys::*;
 use std::{collections::HashMap, rc::Rc};
 
@@ -10,7 +11,18 @@ use crate::texture::*;
 type Ctx = WebGlRenderingContext;
 
 pub enum AttributeType {
-    Vector2, Vector3, Vector4
+    Scalar, Vector2, Vector3, Vector4
+}
+
+impl AttributeType {
+    fn num_components(&self) -> i32 {
+        match *self {
+            AttributeType::Scalar => 1,
+            AttributeType::Vector2 => 2,
+            AttributeType::Vector3 => 3,
+            AttributeType::Vector4 => 4,
+        }
+    }
 }
 
 pub enum UniformType {
@@ -18,18 +30,6 @@ pub enum UniformType {
     Float,
     Vector2,
     Vector4,
-}
-
-pub struct AttributeDescription {
-    pub name: &'static str,
-    pub location: Option<i32>,
-    pub t: AttributeType,
-}
-
-impl AttributeDescription {
-    pub fn new(name: &'static str, t: AttributeType) -> AttributeDescription {
-        AttributeDescription { name, location: None, t }
-    }
 }
 
 pub struct UniformDescription {
@@ -47,9 +47,7 @@ impl UniformDescription {
 pub struct Program {
     ctx: Ctx,
     program: WebGlProgram,
-    attributes: Vec<AttributeDescription>,
     uniforms: Vec<UniformDescription>,
-    mode: u32,
 }
 
 impl Program {
@@ -58,9 +56,8 @@ impl Program {
         vertex: &str,
         fragment: &str,
         unis: Vec<UniformDescription>,
-        attrs: Vec<AttributeDescription>
     ) -> Result<Program, String> {
-        Program::new_with_mode(ctx, vertex, fragment, unis, attrs, Ctx::TRIANGLES)
+        Program::new_with_mode(ctx, vertex, fragment, unis)
     }
 
     pub fn new_with_mode(
@@ -68,8 +65,6 @@ impl Program {
         vertex: &str,
         fragment: &str,
         unis: Vec<UniformDescription>,
-        attrs: Vec<AttributeDescription>,
-        mode: u32
     ) -> Result<Program, String> {
 
         let vertex_id = Program::shader(ctx, Ctx::VERTEX_SHADER, vertex)?;
@@ -80,15 +75,7 @@ impl Program {
         ctx.attach_shader(&program, &fragment_id);
         ctx.link_program(&program);
 
-        let attributes = attrs.into_iter().map(|a| {
-            let loc = ctx.get_attrib_location(&program, a.name);
-            if loc >= 0 {
-                Ok(AttributeDescription { location: Some(loc), .. a })
-            } else {
-                Err(format!("Failed to locate attrib {}", a.name))
-            }
-        }).collect::<Result<_, _>>()?;
-
+        // todo: unbound uniforms
         let uniforms = unis.into_iter().map(|u| {
             match ctx.get_uniform_location(&program, u.name) {
                 Some(u_loc) => Ok(UniformDescription { location: Some(u_loc), .. u }),
@@ -96,7 +83,7 @@ impl Program {
             }
         }).collect::<Result<_, _>>()?;
 
-        Ok(Program { ctx: ctx.clone(), program, attributes, uniforms, mode })
+        Ok(Program { ctx: ctx.clone(), program, uniforms })
     }
 
     fn shader(ctx: &Ctx, shader_type: u32, source: &str) -> Result<WebGlShader, String> {
@@ -131,79 +118,31 @@ pub enum UniformData {
 }
 
 pub struct GlState {
-    ctx: Ctx,
+    ctx: Rc<Ctx>,
     viewport: Viewport,
-    vertex_buffers: HashMap<&'static str, WebGlBuffer>,
-    element_buffer: Option<WebGlBuffer>,
-    element_buffer_size: usize,
+    objects: Vec<Mesh>,
 }
 
 impl GlState {
-    pub fn new(ctx: &Ctx, viewport: Viewport) -> GlState {
+    pub fn new(ctx: &Rc<Ctx>, viewport: Viewport) -> GlState {
         GlState {
             ctx: ctx.clone(),
             viewport,
-            vertex_buffers: HashMap::new(),
-            element_buffer: None,
-            element_buffer_size: 0
+            objects: vec![],
         }
     }
 
-    pub fn delete_vertex_buffer(&mut self, name: &'static str) -> Result<&mut Self, String> {
-        self.ctx.delete_buffer(self.vertex_buffers.get(name));
-        self.vertex_buffers.remove(name);
-
-        Ok(self)
-    }
-
-    pub fn vertex_buffer(&mut self, name: &'static str, data: &[u8]) -> Result<&mut Self, String> {
-        self.delete_vertex_buffer(name)?;
-
-        let buffer = self.ctx.create_buffer().ok_or(format!("Failed to create buffer for {}", name))?;
-        self.ctx.bind_buffer(Ctx::ARRAY_BUFFER, Some(&buffer));
-        self.ctx.buffer_data_with_u8_array(Ctx::ARRAY_BUFFER, data, Ctx::STATIC_DRAW);
-
-        self.vertex_buffers.insert(name, buffer);
-        Ok(self)
-    }
-
-    pub fn delete_element_buffer(&mut self) -> Result<&mut Self, String> {
-        match &self.element_buffer {
-            Some(eb) => self.ctx.delete_buffer(Some(&eb)),
-            None => (),
-        };
-        self.element_buffer_size = 0;
-
-        Ok(self)
-    }
-
-    pub fn element_buffer(&mut self, data: &[u8]) -> Result<&mut Self, String> {
-        self.delete_element_buffer()?;
-
-        let buffer = self.ctx.create_buffer().ok_or("Failed to create element buffer")?;
-        self.ctx.bind_buffer(Ctx::ELEMENT_ARRAY_BUFFER, Some(&buffer));
-        self.ctx.buffer_data_with_u8_array(Ctx::ELEMENT_ARRAY_BUFFER, data, Ctx::STATIC_DRAW);
-
-        self.element_buffer = Some(buffer);
-        self.element_buffer_size = data.len() / 2; // assuming UNSIGNED_SHORTS
-        Ok(self)
+    pub fn add_mesh(mut self, obj: Mesh) -> GlState {
+        self.objects.push(obj);
+        self
     }
 
     pub fn run(&self, program: &Program, uni_values: &HashMap<&'static str, UniformData>) -> Result<&Self, String> {
-        if self.element_buffer.is_none() {
-            Err("Element buffer is not set")?
+        for obj in self.objects.iter() {
+            self.ctx.use_program(Some(&program.program));
+            self.setup_uniforms(&program.uniforms, uni_values)?;
+            obj.draw(program)?;
         }
-
-        self.ctx.use_program(Some(&program.program));
-
-        self.setup_attributes(&program.attributes)?;
-        self.setup_uniforms(&program.uniforms, uni_values)?;
-
-        self.ctx.draw_elements_with_i32(
-            program.mode,
-            self.element_buffer_size as i32,
-            Ctx::UNSIGNED_SHORT,
-            0);
 
         Ok(self)
     }
@@ -219,29 +158,6 @@ impl GlState {
 
         self.ctx.bind_framebuffer(Ctx::FRAMEBUFFER, None);
         self.ctx.viewport(0, 0, self.viewport.w as i32, self.viewport.h as i32);
-
-        Ok(self)
-    }
-
-    fn setup_attributes(&self, attributes: &Vec<AttributeDescription>) -> Result<&Self, String> {
-        let mut vert_array_idx = 0;
-        for att in attributes {
-            let idx = att.location.ok_or(format!("Location for attribute {} is not set", att.name))? as u32;
-
-            let buffer = self.vertex_buffers.get(att.name).ok_or(format!("Vertex buffer for {} is not set", att.name))?;
-            self.ctx.bind_buffer(Ctx::ARRAY_BUFFER, Some(&buffer));
-
-            let size: i32 = match att.t {
-                AttributeType::Vector2 => 2,
-                AttributeType::Vector3 => 3,
-                AttributeType::Vector4 => 4,
-            } as i32;
-
-            self.ctx.enable_vertex_attrib_array(vert_array_idx);
-            self.ctx.vertex_attrib_pointer_with_i32(idx, size, Ctx::FLOAT, false, 0, 0);
-
-            vert_array_idx += 1;
-        }
 
         Ok(self)
     }
@@ -284,15 +200,5 @@ impl GlState {
             }
         }
         Ok(self)
-    }
-}
-
-impl Drop for GlState {
-    fn drop(&mut self) {
-        for vb in self.vertex_buffers.clone() {
-            self.delete_vertex_buffer(vb.0).expect(format!("Failed to delete vertex buffer {}", vb.0).as_str());
-        }
-
-        self.delete_element_buffer().expect("Failed to delete element buffer");
     }
 }
