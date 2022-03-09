@@ -4,7 +4,7 @@ use web_sys::{WebGlFramebuffer, WebGlTexture};
 
 use crate::{GL, Ctx};
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct Viewport {
     pub x: i32,
     pub y: i32,
@@ -20,6 +20,15 @@ impl Viewport {
             w: width as i32,
             h: height as i32,
         }
+    }
+
+    pub fn set(&self, ctx: &Ctx) {
+        ctx.viewport(
+            self.x,
+            self.y,
+            self.w,
+            self.h,
+        );
     }
 }
 
@@ -167,12 +176,7 @@ impl<C, D> Framebuffer<C, D> {
 
     pub fn bind(&self) {
         self.ctx.bind_framebuffer(GL::FRAMEBUFFER, Some(&self.handle));
-        self.ctx.viewport(
-            self.viewport.x,
-            self.viewport.y,
-            self.viewport.w,
-            self.viewport.h,
-        );
+        self.viewport.set(&self.ctx);
     }
 }
 

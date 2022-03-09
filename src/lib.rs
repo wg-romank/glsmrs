@@ -103,6 +103,11 @@ pub enum UniformData {
     Texture(Rc<UploadedTexture>),
 }
 
+pub enum RenderTarget<'a, C, D> {
+    Framebuffer(&'a mut Framebuffer<C, D>),
+    Display(Viewport),
+}
+
 pub struct Pipeline;
 
 impl Pipeline {
@@ -110,18 +115,20 @@ impl Pipeline {
         Self {}
     }
 
-    pub fn shade<C, D>(
+    pub fn shade<'a, C, D>(
         &self,
         ctx: &Ctx,
         program: &Program,
         uni_values: &HashMap<&'static str, UniformData>,
         objects: Vec<&Mesh>,
-        output: Option<&mut Framebuffer<C, D>>,
+        output: RenderTarget<'a, C, D>,
     ) -> Result<&Self, String> {
-        if let Some(fb) = output {
-            fb.bind();
-        } else {
-            ctx.bind_framebuffer(GL::FRAMEBUFFER, None);  
+        match output {
+            RenderTarget::Framebuffer(fb) => fb.bind(),
+            RenderTarget::Display(vp) => {
+                ctx.bind_framebuffer(GL::FRAMEBUFFER, None);
+                vp.set(&ctx);
+            }
         }
 
         ctx.use_program(Some(&program.program));
