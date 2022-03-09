@@ -1,4 +1,5 @@
 use mesh::Mesh;
+use util::get_ctx;
 use std::{collections::HashMap, rc::Rc, ops::Deref};
 use web_sys::*;
 
@@ -12,6 +13,11 @@ use crate::texture::*;
 pub struct Ctx(Rc<WebGlRenderingContext>);
 
 impl Ctx {
+    pub fn from(canvas_name: &str) -> Result<Self, String> {
+        get_ctx(canvas_name, "webgl")
+            .map(|ctx| Self::new(ctx))
+            .map_err(|e| format!("{:?}", e))
+    }
     pub fn new(ctx: WebGlRenderingContext) -> Self {
         Self(Rc::new(ctx))
     }
@@ -28,20 +34,73 @@ impl Deref for Ctx {
 pub type GL = WebGlRenderingContext;
 
 pub enum AttributeType {
-    Scalar,
-    Vector2,
-    Vector3,
-    Vector4,
+    Scal(AttributeScalar),
+    Vec2(AttributeVector2),
+    Vec3(AttributeVector3),
 }
 
 impl AttributeType {
-    fn num_components(&self) -> i32 {
-        match *self {
-            AttributeType::Scalar => 1,
-            AttributeType::Vector2 => 2,
-            AttributeType::Vector3 => 3,
-            AttributeType::Vector4 => 4,
+    fn name(&self) -> &'static str {
+        match &self {
+            &AttributeType::Scal(s) => s.0,
+            &AttributeType::Vec2(v) => v.0,
+            &AttributeType::Vec3(v) => v.0,
         }
+    }
+    fn num_components(&self) -> i32 {
+        match &self {
+            &AttributeType::Scal(_) => 1,
+            &AttributeType::Vec2(_) => 2,
+            &AttributeType::Vec3(_) => 3,
+        }
+    }
+}
+
+pub trait Attribute {
+    type Repr: ?Sized;
+
+    fn new(name: &'static str) -> AttributeType;
+
+    fn pack(data: &Self::Repr) -> Vec<u8>;
+}
+
+pub struct AttributeScalar(pub &'static str);
+
+impl Attribute for AttributeScalar {
+    type Repr = [f32];
+
+    fn new(name: &'static str) -> AttributeType {
+        AttributeType::Scal(AttributeScalar(name))
+    }
+
+    fn pack(data: &Self::Repr) -> Vec<u8> {
+        data.iter().flat_map(|e| e.to_ne_bytes()).collect::<Vec<u8>>()
+    }
+}
+
+pub struct AttributeVector2(pub &'static str);
+
+impl Attribute for AttributeVector2 {
+    type Repr = [[f32; 2]];
+    
+    fn new(name: &'static str) -> AttributeType {
+        AttributeType::Vec2(AttributeVector2(name))
+    }
+    fn pack(data: &Self::Repr) -> Vec<u8> {
+        data.iter().flat_map(|ee| ee.iter().flat_map(|e| e.to_ne_bytes())).collect::<Vec<u8>>()
+    }
+}
+
+pub struct AttributeVector3(pub &'static str);
+
+impl Attribute for AttributeVector3 {
+    type Repr = [[f32; 3]];
+
+    fn new(name: &'static str) -> AttributeType {
+        AttributeType::Vec3(AttributeVector3(name))
+    }
+    fn pack(data: &Self::Repr) -> Vec<u8> {
+        data.iter().flat_map(|ee| ee.iter().flat_map(|e| e.to_ne_bytes())).collect::<Vec<u8>>()
     }
 }
 
@@ -100,6 +159,7 @@ pub enum UniformData {
     Vector2([f32; 2]),
     Vector3([f32; 3]),
     Vector4([f32; 4]),
+    Matrix4([f32; 16]),
     Texture(Rc<UploadedTexture>),
 }
 
@@ -155,6 +215,7 @@ impl Pipeline {
                     UniformData::Vector2(v) => ctx.uniform2fv_with_f32_array(Some(&loc), v),
                     UniformData::Vector3(v) => ctx.uniform3fv_with_f32_array(Some(&loc), v),
                     UniformData::Vector4(v) => ctx.uniform4fv_with_f32_array(Some(&loc), v),
+                    UniformData::Matrix4(m) => ctx.uniform_matrix4fv_with_f32_array(Some(&loc), false, m),
                     UniformData::Texture(tex) => {
                         ctx.active_texture(GL::TEXTURE0 + tex_inc);
                         tex.bind();

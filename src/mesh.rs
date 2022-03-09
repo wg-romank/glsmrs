@@ -2,25 +2,25 @@ use std::collections::HashMap;
 
 use web_sys::WebGlBuffer;
 
-use crate::{GL, AttributeType, Ctx, Program};
+use crate::{GL, Ctx, Program, Attribute, AttributeType};
 
 struct VertexBuffer {
     ctx: Ctx,
-    tup: AttributeType,
+    att: AttributeType,
     buffer: WebGlBuffer,
 }
 
 impl VertexBuffer {
-    fn new(ctx: &Ctx, tup: AttributeType, data: &[u8]) -> Result<Self, String> {
+    fn new<T: Attribute>(ctx: &Ctx, att: AttributeType, data: &T::Repr) -> Result<Self, String> {
         let buffer = ctx
             .create_buffer()
             .ok_or("Failed to create element buffer")?;
         ctx.bind_buffer(GL::ARRAY_BUFFER, Some(&buffer));
-        ctx.buffer_data_with_u8_array(GL::ARRAY_BUFFER, data, GL::STATIC_DRAW);
+        ctx.buffer_data_with_u8_array(GL::ARRAY_BUFFER, &T::pack(data), GL::STATIC_DRAW);
 
         Ok(Self {
             ctx: ctx.clone(),
-            tup,
+            att,
             buffer,
         })
     }
@@ -29,7 +29,7 @@ impl VertexBuffer {
         self.ctx.bind_buffer(GL::ARRAY_BUFFER, Some(&self.buffer));
         self.ctx.vertex_attrib_pointer_with_i32(
             ptr_idx,
-            self.tup.num_components(),
+            self.att.num_components(),
             GL::FLOAT,
             false,
             0,
@@ -105,8 +105,8 @@ impl Mesh {
         })
     }
 
-    pub fn with_attribute(mut self, name: &'static str, tup: AttributeType, data: &[u8]) -> Result<Self, String> {
-        let vb = VertexBuffer::new(&self.ctx, tup, data)?;
+    pub fn with_attribute<T: Attribute>(mut self, name: &'static str, data: &T::Repr) -> Result<Self, String> {
+        let vb = VertexBuffer::new::<T>(&self.ctx, T::new(name), data)?;
         self.vertex_buffers.insert(name, vb);
         Ok(self)
     }

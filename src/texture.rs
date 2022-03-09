@@ -94,6 +94,17 @@ pub struct TextureSpec {
 }
 
 impl TextureSpec {
+    pub fn new(color_format: ColorFormat, dimensions: [u32; 2]) -> Self {
+        Self {
+            color_format,
+            dimensions,
+            interpolation_min: InterpolationMin(GL::LINEAR),
+            interpolation_mag: InterpolationMag(GL::LINEAR),
+            wrap_t: WrapT(GL::CLAMP_TO_EDGE),
+            wrap_s: WrapS(GL::CLAMP_TO_EDGE),
+        }
+    }
+
     pub fn pixel(color_format: ColorFormat, dimensions: [u32; 2]) -> Self {
         Self {
             color_format,
@@ -103,6 +114,21 @@ impl TextureSpec {
             wrap_t: WrapT(GL::CLAMP_TO_EDGE),
             wrap_s: WrapS(GL::CLAMP_TO_EDGE),
         }
+    }
+
+    pub fn wrap_t(mut self, wrap: WrapT) -> Self {
+        self.wrap_t = wrap;
+        self
+    }
+
+    pub fn wrap_s(mut self, wrap: WrapS) -> Self {
+        self.wrap_s = wrap;
+        self
+    }
+
+    pub fn upload_rgba(&self, ctx: &Ctx, data: &[[f32; 4]]) -> Result<UploadedTexture, String> {
+        let packed = data.iter().flat_map(|e| e.iter().flat_map(|ee| ee.to_be_bytes())).collect::<Vec<u8>>();
+        self.upload(&ctx, Some(&packed))
     }
 
     pub fn upload(&self, ctx: &Ctx, data: Option<&[u8]>) -> Result<UploadedTexture, String> {
