@@ -1,38 +1,25 @@
-use std::rc::Rc;
+use std::ops::Deref;
 
-use web_sys::{WebGlTexture, WebGlFramebuffer};
+use web_sys::{WebGlFramebuffer, WebGlTexture};
 
-use crate::Ctx;
+use crate::{GL, Ctx};
 
 #[derive(Clone)]
 pub struct Viewport {
     pub x: i32,
     pub y: i32,
     pub w: i32,
-    pub h: i32
+    pub h: i32,
 }
 
 impl Viewport {
     pub fn new(width: u32, height: u32) -> Self {
-        Self { x: 0, y: 0, w: width as i32, h: height as i32 }
-    }
-}
-
-#[derive(Clone)]
-pub struct UploadedTexture {
-    ctx: Rc<Ctx>,
-    handle: WebGlTexture,
-}
-
-impl UploadedTexture {
-    pub fn bind(&self, ctx: &Ctx) {
-        ctx.bind_texture(Ctx::TEXTURE_2D, Some(&self.handle));
-    }
-}
-
-impl Drop for UploadedTexture {
-    fn drop(&mut self) {
-        self.ctx.delete_texture(Some(&self.handle));
+        Self {
+            x: 0,
+            y: 0,
+            w: width as i32,
+            h: height as i32,
+        }
     }
 }
 
@@ -46,74 +33,171 @@ pub struct TextureSpec {
 }
 
 impl TextureSpec {
-    pub fn upload(&self, ctx: &Rc<Ctx>, data: Option<&[u8]>) -> Result<UploadedTexture, String> {
-        let handle = ctx.create_texture().ok_or(format!("Failed to create texture"))?;
-        ctx.bind_texture(Ctx::TEXTURE_2D, Some(&handle));
+    pub fn upload(&self, ctx: &Ctx, data: Option<&[u8]>) -> Result<UploadedTexture, String> {
+        let handle = ctx
+            .create_texture()
+            .ok_or(format!("Failed to create texture"))?;
+        ctx.bind_texture(GL::TEXTURE_2D, Some(&handle));
         ctx.tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_u8_array(
-            Ctx::TEXTURE_2D,
+            GL::TEXTURE_2D,
             0,
             self.color_format as i32,
             self.dimensions[0] as i32,
             self.dimensions[1] as i32,
             0,
             self.color_format,
-            Ctx::UNSIGNED_BYTE,
+            GL::UNSIGNED_BYTE,
             data,
-        ).map_err(|e| format!("Failed to send image data {:?}", e))?;
-
-        ctx.tex_parameteri(Ctx::TEXTURE_2D, Ctx::TEXTURE_MIN_FILTER, self.interpolation_min as i32);
-        ctx.tex_parameteri(Ctx::TEXTURE_2D, Ctx::TEXTURE_MAG_FILTER, self.interpolation_mag as i32);
-        ctx.tex_parameteri(Ctx::TEXTURE_2D, Ctx::TEXTURE_WRAP_T, self.wrap_t as i32);
-        ctx.tex_parameteri(Ctx::TEXTURE_2D, Ctx::TEXTURE_WRAP_S, self.wrap_s as i32);
-
-        Ok(
-            UploadedTexture {
-                ctx: ctx.clone(),
-                handle
-            }
         )
+        .map_err(|e| format!("Failed to send image data {:?}", e))?;
+
+        ctx.tex_parameteri(
+            GL::TEXTURE_2D,
+            GL::TEXTURE_MIN_FILTER,
+            self.interpolation_min as i32,
+        );
+        ctx.tex_parameteri(
+            GL::TEXTURE_2D,
+            GL::TEXTURE_MAG_FILTER,
+            self.interpolation_mag as i32,
+        );
+        ctx.tex_parameteri(GL::TEXTURE_2D, GL::TEXTURE_WRAP_T, self.wrap_t as i32);
+        ctx.tex_parameteri(GL::TEXTURE_2D, GL::TEXTURE_WRAP_S, self.wrap_s as i32);
+
+        Ok(UploadedTexture {
+            ctx: ctx.clone(),
+            handle,
+        })
     }
 }
 
-pub struct Framebuffer {
-    ctx: Rc<Ctx>,
+pub struct UploadedTexture {
+    ctx: Ctx,
+    handle: WebGlTexture,
+}
+
+impl UploadedTexture {
+    pub fn bind(&self) {
+        self.ctx.bind_texture(GL::TEXTURE_2D, Some(&self.handle));
+    }
+}
+
+impl Drop for UploadedTexture {
+    fn drop(&mut self) {
+        self.ctx.delete_texture(Some(&self.handle));
+    }
+}
+
+
+pub struct Framebuffer<C, D> {
+    ctx: Ctx,
     viewport: Viewport,
     handle: WebGlFramebuffer,
-    pub color_slot: Option<Rc<UploadedTexture>>,
-    pub depth_slot: Option<Rc<UploadedTexture>>,
+    pub color_slot: C,
+    pub depth_slot: D,
 }
 
-impl Framebuffer {
-    pub fn new(ctx: &Rc<Ctx>, viewport: Viewport) -> Result<Self, String> {
-        let handle = ctx.create_framebuffer().ok_or(format!("Failed to create frame buffer"))?;
-
-        Ok(
-            Self {
-                ctx: ctx.clone(),
-                viewport,
-                handle,
-                color_slot: None,
-                depth_slot: None,
-            }
-        )
+impl<C, D> Framebuffer<C, D> {
+    pub fn dimensions(&self) -> [f32; 2] {
+        [self.viewport.w as f32, self.viewport.h as f32]
     }
 
-    pub fn with_color_slot(mut self, ctx: &Ctx, tex: UploadedTexture) -> Self {
-        self.bind(ctx);
-        ctx.framebuffer_texture_2d(Ctx::FRAMEBUFFER, Ctx::COLOR_ATTACHMENT0, Ctx::TEXTURE_2D, Some(&tex.handle), 0);
-        self.color_slot = Some(Rc::new(tex));
-
-        self
-    }
-
-    pub fn bind(&self, ctx: &Ctx) {
-        ctx.bind_framebuffer(Ctx::FRAMEBUFFER, Some(&self.handle));
-        ctx.viewport(self.viewport.x, self.viewport.y, self.viewport.w, self.viewport.h);
+    pub fn bind(&self) {
+        self.ctx.bind_framebuffer(GL::FRAMEBUFFER, Some(&self.handle));
+        self.ctx.viewport(
+            self.viewport.x,
+            self.viewport.y,
+            self.viewport.w,
+            self.viewport.h,
+        );
     }
 }
 
-impl Drop for Framebuffer {
-    fn drop(&mut self) {
-        self.ctx.delete_framebuffer(Some(&self.handle));
+impl Framebuffer<(), ()> {
+    pub fn new(ctx: &Ctx, viewport: Viewport) -> Result<Self, String> {
+        let handle = ctx
+            .create_framebuffer()
+            .ok_or(format!("Failed to create frame buffer"))?;
+
+        Ok(Self {
+            ctx: ctx.clone(),
+            viewport,
+            handle,
+            color_slot: (),
+            depth_slot: (),
+        })
     }
 }
+
+impl<D> Framebuffer<(), D> {
+    pub fn with_color_slot<T>(self, ctx: &Ctx, tex: T) -> Framebuffer<T, D>
+    where
+        T: Deref<Target = UploadedTexture> + Clone,
+    {
+        self.bind();
+        ctx.framebuffer_texture_2d(
+            GL::FRAMEBUFFER,
+            GL::COLOR_ATTACHMENT0,
+            GL::TEXTURE_2D,
+            Some(&tex.handle),
+            0,
+        );
+
+        Framebuffer {
+            ctx: self.ctx,
+            viewport: self.viewport,
+            handle: self.handle,
+            color_slot: tex.clone(),
+            depth_slot: self.depth_slot,
+        }
+    }
+}
+
+impl<C> Framebuffer<C, ()> {
+    pub fn with_depth_slot<T>(self, ctx: &Ctx, tex: T) -> Framebuffer<C, T>
+    where
+        T: Deref<Target = UploadedTexture> + Clone,
+    {
+        self.bind();
+        ctx.framebuffer_texture_2d(
+            GL::FRAMEBUFFER,
+            GL::DEPTH_ATTACHMENT,
+            GL::TEXTURE_2D,
+            Some(&tex.handle),
+            0,
+        );
+
+        Framebuffer {
+            ctx: self.ctx,
+            viewport: self.viewport,
+            handle: self.handle,
+            color_slot: self.color_slot, 
+            depth_slot: tex.clone(),
+        }
+    }
+}
+
+impl<T, X> Framebuffer<T, X>
+where
+    T: Deref<Target = UploadedTexture> + Clone,
+{
+    pub fn color_slot(&self) -> T {
+        self.color_slot.clone()
+    }
+}
+
+impl<X, T> Framebuffer<X, T>
+where
+    T: Deref<Target = UploadedTexture> + Clone,
+{
+    pub fn depth_slot(&self) -> T {
+        self.depth_slot.clone()
+    }
+}
+
+// todo:
+// impl<C, D> Drop for Framebuffer<C, D> {
+//     fn drop(&mut self) {
+//         self.ctx.delete_framebuffer(Some(&self.handle));
+//     }
+// }

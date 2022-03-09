@@ -1,17 +1,37 @@
 use mesh::Mesh;
+use std::{collections::HashMap, rc::Rc, ops::Deref};
 use web_sys::*;
-use std::{collections::HashMap, rc::Rc};
 
-pub mod util;
-pub mod texture;
 pub mod mesh;
+pub mod texture;
+pub mod util;
 
 use crate::texture::*;
 
-type Ctx = WebGlRenderingContext;
+#[derive(Clone)]
+pub struct Ctx(Rc<WebGlRenderingContext>);
+
+impl Ctx {
+    pub fn new(ctx: WebGlRenderingContext) -> Self {
+        Self(Rc::new(ctx))
+    }
+}
+
+impl Deref for Ctx {
+    type Target = WebGlRenderingContext;
+
+    fn deref(&self) -> &WebGlRenderingContext {
+        &self.0
+    }
+}
+
+pub type GL = WebGlRenderingContext;
 
 pub enum AttributeType {
-    Scalar, Vector2, Vector3, Vector4
+    Scalar,
+    Vector2,
+    Vector3,
+    Vector4,
 }
 
 impl AttributeType {
@@ -25,75 +45,40 @@ impl AttributeType {
     }
 }
 
-pub enum UniformType {
-    Sampler2D,
-    Float,
-    Vector2,
-    Vector4,
-}
-
-pub struct UniformDescription {
-    pub name: &'static str,
-    pub location: Option<WebGlUniformLocation>,
-    pub t: UniformType,
-}
-
-impl UniformDescription {
-    pub fn new (name: &'static str, t: UniformType) -> UniformDescription {
-        UniformDescription { name, location: None, t }
-    }
-}
-
 pub struct Program {
     ctx: Ctx,
     program: WebGlProgram,
-    uniforms: Vec<UniformDescription>,
 }
 
 impl Program {
-    pub fn new(
-        ctx: &Ctx,
-        vertex: &str,
-        fragment: &str,
-        unis: Vec<UniformDescription>,
-    ) -> Result<Program, String> {
-        Program::new_with_mode(ctx, vertex, fragment, unis)
+    pub fn new(ctx: &Ctx, vertex: &str, fragment: &str) -> Result<Program, String> {
+        Program::new_with_mode(ctx, vertex, fragment)
     }
 
-    pub fn new_with_mode(
-        ctx: &Ctx,
-        vertex: &str,
-        fragment: &str,
-        unis: Vec<UniformDescription>,
-    ) -> Result<Program, String> {
-
-        let vertex_id = Program::shader(ctx, Ctx::VERTEX_SHADER, vertex)?;
-        let fragment_id = Program::shader(ctx, Ctx::FRAGMENT_SHADER, fragment)?;
+    pub fn new_with_mode(ctx: &Ctx, vertex: &str, fragment: &str) -> Result<Program, String> {
+        let vertex_id = Program::shader(ctx, GL::VERTEX_SHADER, vertex)?;
+        let fragment_id = Program::shader(ctx, GL::FRAGMENT_SHADER, fragment)?;
 
         let program = ctx.create_program().ok_or("Failed to create program")?;
         ctx.attach_shader(&program, &vertex_id);
         ctx.attach_shader(&program, &fragment_id);
         ctx.link_program(&program);
 
-        // todo: unbound uniforms
-        let uniforms = unis.into_iter().map(|u| {
-            match ctx.get_uniform_location(&program, u.name) {
-                Some(u_loc) => Ok(UniformDescription { location: Some(u_loc), .. u }),
-                None => Err(format!("Failed to locate uniform {}", u.name))
-            }
-        }).collect::<Result<_, _>>()?;
-
-        Ok(Program { ctx: ctx.clone(), program, uniforms })
+        Ok(Program {
+            ctx: ctx.clone(),
+            program,
+        })
     }
 
     fn shader(ctx: &Ctx, shader_type: u32, source: &str) -> Result<WebGlShader, String> {
         let shader = ctx
-            .create_shader(shader_type).ok_or(format!("Failed to create shader {}", shader_type))?;
+            .create_shader(shader_type)
+            .ok_or(format!("Failed to create shader {}", shader_type))?;
         ctx.shader_source(&shader, source);
         ctx.compile_shader(&shader);
 
         if ctx
-            .get_shader_parameter(&shader, Ctx::COMPILE_STATUS)
+            .get_shader_parameter(&shader, GL::COMPILE_STATUS)
             .as_bool()
             .unwrap_or(false)
         {
@@ -113,88 +98,63 @@ impl Drop for Program {
 pub enum UniformData {
     Scalar(f32),
     Vector2([f32; 2]),
+    Vector3([f32; 3]),
     Vector4([f32; 4]),
     Texture(Rc<UploadedTexture>),
 }
 
-pub struct GlState {
-    ctx: Rc<Ctx>,
-    viewport: Viewport,
-    objects: Vec<Mesh>,
-}
+pub struct Pipeline;
 
-impl GlState {
-    pub fn new(ctx: &Rc<Ctx>, viewport: Viewport) -> GlState {
-        GlState {
-            ctx: ctx.clone(),
-            viewport,
-            objects: vec![],
+impl Pipeline {
+    pub fn new() -> Self {
+        Self {}
+    }
+
+    pub fn shade<C, D>(
+        &self,
+        ctx: &Ctx,
+        program: &Program,
+        uni_values: &HashMap<&'static str, UniformData>,
+        objects: Vec<&Mesh>,
+        output: Option<&mut Framebuffer<C, D>>,
+    ) -> Result<&Self, String> {
+        if let Some(fb) = output {
+            fb.bind();
+        } else {
+            ctx.bind_framebuffer(GL::FRAMEBUFFER, None);  
         }
-    }
 
-    pub fn add_mesh(mut self, obj: Mesh) -> GlState {
-        self.objects.push(obj);
-        self
-    }
+        ctx.use_program(Some(&program.program));
+        self.set_uniforms(ctx, &program, uni_values)?;
 
-    pub fn run(&self, program: &Program, uni_values: &HashMap<&'static str, UniformData>) -> Result<&Self, String> {
-        for obj in self.objects.iter() {
-            self.ctx.use_program(Some(&program.program));
-            self.setup_uniforms(&program.uniforms, uni_values)?;
+        for obj in objects.iter() {
             obj.draw(program)?;
         }
 
         Ok(self)
     }
 
-    pub fn run_mut<'a>(
-        &self, program: &Program,
-        uni_values: &HashMap<&'static str, UniformData>,
-        output: &mut Framebuffer,
+    fn set_uniforms(
+        &self,
+        ctx: &Ctx,
+        program: &Program,
+        uniform_values: &HashMap<&'static str, UniformData>,
     ) -> Result<&Self, String> {
-        output.bind(&self.ctx);
-
-        self.run(&program, &uni_values)?;
-
-        self.ctx.bind_framebuffer(Ctx::FRAMEBUFFER, None);
-        self.ctx.viewport(0, 0, self.viewport.w as i32, self.viewport.h as i32);
-
-        Ok(self)
-    }
-
-    // todo: keep index to only update when new textures are coming?
-    fn setup_uniforms(&self, uniforms: &Vec<UniformDescription>, uniform_values: &HashMap<&'static str, UniformData>) -> Result<&Self, String> {
         let mut tex_inc = 0;
+        for (&name, uni_val) in uniform_values.iter() {
+            if let Some(loc) = ctx.get_uniform_location(&program.program, name) {
+                match uni_val {
+                    UniformData::Scalar(v) => ctx.uniform1f(Some(&loc), v.clone()),
+                    UniformData::Vector2(v) => ctx.uniform2fv_with_f32_array(Some(&loc), v),
+                    UniformData::Vector3(v) => ctx.uniform3fv_with_f32_array(Some(&loc), v),
+                    UniformData::Vector4(v) => ctx.uniform4fv_with_f32_array(Some(&loc), v),
+                    UniformData::Texture(tex) => {
+                        ctx.active_texture(GL::TEXTURE0 + tex_inc);
+                        tex.bind();
 
-        for uni in uniforms {
-            let loc = uni.location.clone().ok_or(format!("Location for uniform {} is not set", uni.name))?;
-            match uni.t {
-                UniformType::Float =>
-                    match uniform_values.get(uni.name).ok_or(format!("Missing value for scalar uniform {}", uni.name))? {
-                        UniformData::Scalar(v) => self.ctx.uniform1f(Some(&loc), v.clone()),
-                        _ => ()
-                    },
-                UniformType::Vector2 =>
-                    match uniform_values.get(uni.name).ok_or(format!("Missing value for vector uniform {}", uni.name))? {
-                        UniformData::Vector2(v) => self.ctx.uniform2fv_with_f32_array(Some(&loc), v),
-                        _ => ()
-                    },
-                UniformType::Vector4 =>
-                    match uniform_values.get(uni.name).ok_or(format!("Missing value for vector uniform {}", uni.name))? {
-                        UniformData::Vector4(v) => self.ctx.uniform4fv_with_f32_array(Some(&loc), v),
-                        _ => ()
-                    },
-                UniformType::Sampler2D => {
-                    match uniform_values.get(uni.name).ok_or(format!("Missing value for texture uniform {}", uni.name))? {
-                        UniformData::Texture(tex) => {
-                            self.ctx.active_texture(Ctx::TEXTURE0 + tex_inc);
-                            tex.bind(&self.ctx);
-
-                            // todo: double check on safely disposing uniforms data
-                            self.ctx.uniform1i(Some(&loc), tex_inc as i32);
-                            tex_inc += 1;
-                        },
-                        _ => ()
+                        // todo: double check on safely disposing uniforms data
+                        ctx.uniform1i(Some(&loc), tex_inc as i32);
+                        tex_inc += 1;
                     }
                 }
             }
