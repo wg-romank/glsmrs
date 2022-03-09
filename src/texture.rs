@@ -23,16 +23,79 @@ impl Viewport {
     }
 }
 
+#[derive(Clone, Copy)]
+pub struct ColorFormat(pub u32);
+
+impl Into<i32> for ColorFormat {
+    fn into(self) -> i32 {
+        self.0 as i32
+    }
+}
+
+impl Into<u32> for ColorFormat {
+    fn into(self) -> u32 {
+        self.0
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct InterpolationMin(pub u32);
+
+impl Into<i32> for InterpolationMin {
+    fn into(self) -> i32 {
+        self.0 as i32
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct InterpolationMag(pub u32);
+
+impl Into<i32> for InterpolationMag {
+    fn into(self) -> i32 {
+        self.0 as i32
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct WrapT(pub u32);
+
+impl Into<i32> for WrapT {
+    fn into(self) -> i32 {
+        self.0 as i32
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct WrapS(pub u32);
+
+
+impl Into<i32> for WrapS {
+    fn into(self) -> i32 {
+        self.0 as i32
+    }
+}
+
 pub struct TextureSpec {
-    pub color_format: u32,
+    pub color_format: ColorFormat,
     pub dimensions: [u32; 2],
-    pub interpolation_min: u32,
-    pub interpolation_mag: u32,
-    pub wrap_t: u32,
-    pub wrap_s: u32,
+    pub interpolation_min: InterpolationMin,
+    pub interpolation_mag: InterpolationMag,
+    pub wrap_t: WrapT,
+    pub wrap_s: WrapS,
 }
 
 impl TextureSpec {
+    pub fn pixel(color_format: ColorFormat, dimensions: [u32; 2]) -> Self {
+        Self {
+            color_format,
+            dimensions,
+            interpolation_min: InterpolationMin(GL::NEAREST),
+            interpolation_mag: InterpolationMag(GL::NEAREST),
+            wrap_t: WrapT(GL::CLAMP_TO_EDGE),
+            wrap_s: WrapS(GL::CLAMP_TO_EDGE),
+        }
+    }
+
     pub fn upload(&self, ctx: &Ctx, data: Option<&[u8]>) -> Result<UploadedTexture, String> {
         let handle = ctx
             .create_texture()
@@ -41,11 +104,11 @@ impl TextureSpec {
         ctx.tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_u8_array(
             GL::TEXTURE_2D,
             0,
-            self.color_format as i32,
+            self.color_format.into(),
             self.dimensions[0] as i32,
             self.dimensions[1] as i32,
             0,
-            self.color_format,
+            self.color_format.into(),
             GL::UNSIGNED_BYTE,
             data,
         )
@@ -54,15 +117,15 @@ impl TextureSpec {
         ctx.tex_parameteri(
             GL::TEXTURE_2D,
             GL::TEXTURE_MIN_FILTER,
-            self.interpolation_min as i32,
+            self.interpolation_min.into(),
         );
         ctx.tex_parameteri(
             GL::TEXTURE_2D,
             GL::TEXTURE_MAG_FILTER,
-            self.interpolation_mag as i32,
+            self.interpolation_mag.into(),
         );
-        ctx.tex_parameteri(GL::TEXTURE_2D, GL::TEXTURE_WRAP_T, self.wrap_t as i32);
-        ctx.tex_parameteri(GL::TEXTURE_2D, GL::TEXTURE_WRAP_S, self.wrap_s as i32);
+        ctx.tex_parameteri(GL::TEXTURE_2D, GL::TEXTURE_WRAP_T, self.wrap_t.into());
+        ctx.tex_parameteri(GL::TEXTURE_2D, GL::TEXTURE_WRAP_S, self.wrap_s.into());
 
         Ok(UploadedTexture {
             ctx: ctx.clone(),
