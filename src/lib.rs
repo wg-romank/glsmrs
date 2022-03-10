@@ -19,6 +19,9 @@ impl Ctx {
     }
     pub fn new(ctx: WebGlRenderingContext) -> Result<Self, String> {
         ctx.get_extension("WEBGL_depth_texture").map_err(|e| format!("no depth textures available {:?}", e))?;
+        ctx.get_extension("OES_texture_float").map_err(|e| format!("no float textures available {:?}", e))?;
+        ctx.enable(GL::DEPTH_TEST);
+        ctx.enable(GL::CULL_FACE);
 
         Ok(Self(Rc::new(ctx)))
     }
@@ -41,13 +44,6 @@ pub enum AttributeType {
 }
 
 impl AttributeType {
-    fn name(&self) -> &'static str {
-        match &self {
-            &AttributeType::Scal(s) => s.0,
-            &AttributeType::Vec2(v) => v.0,
-            &AttributeType::Vec3(v) => v.0,
-        }
-    }
     fn num_components(&self) -> i32 {
         match &self {
             &AttributeType::Scal(_) => 1,
@@ -172,13 +168,25 @@ pub struct Pipeline {
 }
 
 impl Pipeline {
-    pub fn new(viewport: Viewport) -> Self {
-        Self {
+    pub fn new(ctx: &Ctx, viewport: Viewport) -> Self {
+        let s = Self {
             clear_color: Some([0., 0., 0., 1.]),
             clear_depth: Some(1.),
             clear_stencil: Some(0),
             viewport,
+        };
+
+        if let Some(col) = s.clear_color {
+            ctx.clear_color(col[0], col[1], col[2], col[3]);
         }
+        if let Some(d) = s.clear_depth {
+            ctx.clear_depth(d);
+        }
+        if let Some(s) = s.clear_stencil {
+            ctx.clear_stencil(s);
+        };
+
+        s
     }
 
     pub fn shade<'a, C, D>(
@@ -189,20 +197,20 @@ impl Pipeline {
         objects: Vec<&Mesh>,
         output: Option<&'a mut Framebuffer<C, D>>,
     ) -> Result<&Self, String> {
-        if let Some(col) = self.clear_color {
-            ctx.clear_color(col[0], col[1], col[2], col[3]);
-        }
-        if let Some(d) = self.clear_depth {
-            ctx.clear_depth(d);
-        }
-        if let Some(s) = self.clear_stencil {
-            ctx.clear_stencil(s);
-        }
         if let Some(out_fb) = output {
             out_fb.bind();
         } else {
             ctx.bind_framebuffer(GL::FRAMEBUFFER, None);
             self.viewport.set(&ctx);
+        }
+        if self.clear_color.is_some() {
+            ctx.clear(GL::COLOR_BUFFER_BIT);
+        }
+        if self.clear_depth.is_some() {
+            ctx.clear(GL::DEPTH_BUFFER_BIT);
+        }
+        if self.clear_stencil.is_some() {
+            ctx.clear(GL::STENCIL_BUFFER_BIT);
         }
 
         ctx.use_program(Some(&program.program));

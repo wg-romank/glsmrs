@@ -111,18 +111,23 @@ impl Mesh {
         Ok(self)
     }
 
-    // todo: issue warning when attribute unused?
     pub fn draw(&self, program: &Program) -> Result<(), String> {
+        let mut enabled_attribs = vec![];
         for (&at, buf) in self.vertex_buffers.iter() {
             if let Some(idx) = Some(self.ctx.get_attrib_location(&program.program, at))
                 .filter(|idx| *idx >= 0)
                 .map(|idx| idx as u32) {
                     self.ctx.enable_vertex_attrib_array(idx as u32);
+                    enabled_attribs.push(idx);
                     buf.bind(idx);
                 }
 
         }
         self.element_buffer.draw(self.mode);
+
+        for idx in enabled_attribs.into_iter() {
+            self.ctx.disable_vertex_attrib_array(idx);
+        }
 
         Ok(())
     }
