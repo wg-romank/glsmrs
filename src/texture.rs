@@ -84,9 +84,19 @@ impl Into<i32> for WrapS {
     }
 }
 
+#[derive(Clone, Copy)]
+pub struct InternalFormat(pub u32);
+
+impl Into<u32> for InternalFormat {
+    fn into(self) -> u32 {
+        self.0
+    }
+}
+
 pub struct TextureSpec {
     pub color_format: ColorFormat,
     pub dimensions: [u32; 2],
+    pub internal_format: InternalFormat,
     pub interpolation_min: InterpolationMin,
     pub interpolation_mag: InterpolationMag,
     pub wrap_t: WrapT,
@@ -98,6 +108,7 @@ impl TextureSpec {
         Self {
             color_format,
             dimensions,
+            internal_format: InternalFormat(GL::UNSIGNED_BYTE),
             interpolation_min: InterpolationMin(GL::LINEAR),
             interpolation_mag: InterpolationMag(GL::LINEAR),
             wrap_t: WrapT(GL::CLAMP_TO_EDGE),
@@ -109,6 +120,19 @@ impl TextureSpec {
         Self {
             color_format,
             dimensions,
+            internal_format: InternalFormat(GL::UNSIGNED_BYTE),
+            interpolation_min: InterpolationMin(GL::NEAREST),
+            interpolation_mag: InterpolationMag(GL::NEAREST),
+            wrap_t: WrapT(GL::CLAMP_TO_EDGE),
+            wrap_s: WrapS(GL::CLAMP_TO_EDGE),
+        }
+    }
+
+    pub fn depth(dimensions: [u32; 2]) -> Self {
+        Self {
+            color_format: ColorFormat(GL::DEPTH_COMPONENT),
+            dimensions,
+            internal_format: InternalFormat(GL::UNSIGNED_INT),
             interpolation_min: InterpolationMin(GL::NEAREST),
             interpolation_mag: InterpolationMag(GL::NEAREST),
             wrap_t: WrapT(GL::CLAMP_TO_EDGE),
@@ -126,17 +150,24 @@ impl TextureSpec {
         self
     }
 
-    pub fn upload_rgba(&self, ctx: &Ctx, data: &[[f32; 4]]) -> Result<UploadedTexture, String> {
-        let packed = data.iter().flat_map(|e| e.iter().flat_map(|ee| ee.to_be_bytes())).collect::<Vec<u8>>();
-        self.upload(&ctx, Some(&packed))
+    pub fn upload_u8(&self, ctx: &Ctx, data: &[u8]) -> Result<UploadedTexture, String> {
+        let arr = js_sys::Uint8Array::new_with_length(data.len() as u32);
+        arr.copy_from(data);
+        self.upload(&ctx, Some(&arr))
     }
 
-    pub fn upload(&self, ctx: &Ctx, data: Option<&[u8]>) -> Result<UploadedTexture, String> {
+    pub fn upload_f32(&self, ctx: &Ctx, data: &[f32]) -> Result<UploadedTexture, String> {
+        let arr = js_sys::Float32Array::new_with_length(data.len() as u32);
+        arr.copy_from(data);
+        self.upload(&ctx, Some(&arr))
+    }
+
+    pub fn upload(&self, ctx: &Ctx, data: Option<&js_sys::Object>) -> Result<UploadedTexture, String> {
         let handle = ctx
             .create_texture()
             .ok_or(format!("Failed to create texture"))?;
         ctx.bind_texture(GL::TEXTURE_2D, Some(&handle));
-        ctx.tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_u8_array(
+        ctx.tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_array_buffer_view(
             GL::TEXTURE_2D,
             0,
             self.color_format.into(),
@@ -144,7 +175,7 @@ impl TextureSpec {
             self.dimensions[1] as i32,
             0,
             self.color_format.into(),
-            GL::UNSIGNED_BYTE,
+            self.internal_format.into(),
             data,
         )
         .map_err(|e| format!("Failed to send image data {:?}", e))?;

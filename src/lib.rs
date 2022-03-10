@@ -14,12 +14,13 @@ pub struct Ctx(Rc<WebGlRenderingContext>);
 
 impl Ctx {
     pub fn from(canvas_name: &str) -> Result<Self, String> {
-        get_ctx(canvas_name, "webgl")
-            .map(|ctx| Self::new(ctx))
-            .map_err(|e| format!("{:?}", e))
+        let ctx = get_ctx(canvas_name, "webgl").map_err(|e| format!("{:?}", e))?;
+        Self::new(ctx)
     }
-    pub fn new(ctx: WebGlRenderingContext) -> Self {
-        Self(Rc::new(ctx))
+    pub fn new(ctx: WebGlRenderingContext) -> Result<Self, String> {
+        ctx.get_extension("WEBGL_depth_texture").map_err(|e| format!("no depth textures available {:?}", e))?;
+
+        Ok(Self(Rc::new(ctx)))
     }
 }
 
@@ -163,16 +164,21 @@ pub enum UniformData {
     Texture(Rc<UploadedTexture>),
 }
 
-pub enum RenderTarget<'a, C, D> {
-    Framebuffer(&'a mut Framebuffer<C, D>),
-    Display(Viewport),
+pub struct Pipeline {
+    clear_color: Option<[f32; 4]>,
+    clear_depth: Option<f32>,
+    clear_stencil: Option<i32>,
+    viewport: Viewport,
 }
 
-pub struct Pipeline;
-
 impl Pipeline {
-    pub fn new() -> Self {
-        Self {}
+    pub fn new(viewport: Viewport) -> Self {
+        Self {
+            clear_color: Some([0., 0., 0., 1.]),
+            clear_depth: Some(1.),
+            clear_stencil: Some(0),
+            viewport,
+        }
     }
 
     pub fn shade<'a, C, D>(
@@ -181,14 +187,22 @@ impl Pipeline {
         program: &Program,
         uni_values: &HashMap<&'static str, UniformData>,
         objects: Vec<&Mesh>,
-        output: RenderTarget<'a, C, D>,
+        output: Option<&'a mut Framebuffer<C, D>>,
     ) -> Result<&Self, String> {
-        match output {
-            RenderTarget::Framebuffer(fb) => fb.bind(),
-            RenderTarget::Display(vp) => {
-                ctx.bind_framebuffer(GL::FRAMEBUFFER, None);
-                vp.set(&ctx);
-            }
+        if let Some(col) = self.clear_color {
+            ctx.clear_color(col[0], col[1], col[2], col[3]);
+        }
+        if let Some(d) = self.clear_depth {
+            ctx.clear_depth(d);
+        }
+        if let Some(s) = self.clear_stencil {
+            ctx.clear_stencil(s);
+        }
+        if let Some(out_fb) = output {
+            out_fb.bind();
+        } else {
+            ctx.bind_framebuffer(GL::FRAMEBUFFER, None);
+            self.viewport.set(&ctx);
         }
 
         ctx.use_program(Some(&program.program));

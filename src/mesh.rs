@@ -111,15 +111,16 @@ impl Mesh {
         Ok(self)
     }
 
+    // todo: issue warning when attribute unused?
     pub fn draw(&self, program: &Program) -> Result<(), String> {
         for (&at, buf) in self.vertex_buffers.iter() {
-            let idx = Some(self.ctx.get_attrib_location(&program.program, at))
+            if let Some(idx) = Some(self.ctx.get_attrib_location(&program.program, at))
                 .filter(|idx| *idx >= 0)
-                .map(|idx| idx as u32)
-                .ok_or(format!("failed to fetch location of {}", at))?;
+                .map(|idx| idx as u32) {
+                    self.ctx.enable_vertex_attrib_array(idx as u32);
+                    buf.bind(idx);
+                }
 
-            self.ctx.enable_vertex_attrib_array(idx as u32);
-            buf.bind(idx);
         }
         self.element_buffer.draw(self.mode);
 
