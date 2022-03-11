@@ -2,7 +2,8 @@ use std::collections::HashMap;
 
 use web_sys::WebGlBuffer;
 
-use crate::{GL, Ctx, Program, Attribute, AttributeType};
+use crate::{GL, Ctx, Program};
+use crate::attributes::{Attribute, AttributeType};
 
 struct VertexBuffer {
     ctx: Ctx,
