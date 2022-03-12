@@ -88,29 +88,27 @@ impl Drop for Program {
     }
 }
 
-pub enum UniformData {
+pub enum UniformData<'a> {
     Scalar(f32),
     Vector2([f32; 2]),
     Vector3([f32; 3]),
     Vector4([f32; 4]),
     Matrix4([f32; 16]),
-    Texture(TextureHandle),
+    Texture(&'a mut UploadedTexture),
 }
 
 pub struct Pipeline {
     clear_color: Option<[f32; 4]>,
     clear_depth: Option<f32>,
     clear_stencil: Option<i32>,
-    viewport: Viewport,
 }
 
 impl Pipeline {
-    pub fn new(ctx: &Ctx, viewport: Viewport) -> Self {
+    pub fn new(ctx: &Ctx) -> Self {
         let s = Self {
             clear_color: Some([0., 0., 0., 1.]),
             clear_depth: Some(1.),
             clear_stencil: Some(0),
-            viewport,
         };
 
         if let Some(col) = s.clear_color {
@@ -126,20 +124,16 @@ impl Pipeline {
         s
     }
 
-    pub fn shade<'a, C, D>(
-        &self,
+    pub fn shade<'a, T: Framebuffer>(
+        &mut self,
         ctx: &Ctx,
         program: &Program,
-        uni_values: &HashMap<&'static str, UniformData>,
-        objects: Vec<&Mesh>,
-        output: Option<&'a mut Framebuffer<C, D>>,
+        uni_values: HashMap<&'static str, UniformData>,
+        objects: Vec<&'a mut Mesh>,
+        output: &'a mut T,
     ) -> Result<&Self, String> {
-        if let Some(out_fb) = output {
-            out_fb.bind();
-        } else {
-            ctx.bind_framebuffer(GL::FRAMEBUFFER, None);
-            self.viewport.set(&ctx);
-        }
+        output.bind();
+
         if self.clear_color.is_some() {
             ctx.clear(GL::COLOR_BUFFER_BIT);
         }
@@ -153,7 +147,7 @@ impl Pipeline {
         ctx.use_program(Some(&program.program));
         self.set_uniforms(ctx, &program, uni_values)?;
 
-        for obj in objects.iter() {
+        for obj in objects.into_iter() {
             obj.draw(program)?;
         }
 
@@ -164,17 +158,17 @@ impl Pipeline {
         &self,
         ctx: &Ctx,
         program: &Program,
-        uniform_values: &HashMap<&'static str, UniformData>,
+        uniform_values: HashMap<&'static str, UniformData>,
     ) -> Result<&Self, String> {
         let mut tex_inc = 0;
-        for (&name, uni_val) in uniform_values.iter() {
+        for (name, uni_val) in uniform_values.into_iter() {
             if let Some(loc) = ctx.get_uniform_location(&program.program, name) {
                 match uni_val {
                     UniformData::Scalar(v) => ctx.uniform1f(Some(&loc), v.clone()),
-                    UniformData::Vector2(v) => ctx.uniform2fv_with_f32_array(Some(&loc), v),
-                    UniformData::Vector3(v) => ctx.uniform3fv_with_f32_array(Some(&loc), v),
-                    UniformData::Vector4(v) => ctx.uniform4fv_with_f32_array(Some(&loc), v),
-                    UniformData::Matrix4(m) => ctx.uniform_matrix4fv_with_f32_array(Some(&loc), false, m),
+                    UniformData::Vector2(v) => ctx.uniform2fv_with_f32_array(Some(&loc), &v),
+                    UniformData::Vector3(v) => ctx.uniform3fv_with_f32_array(Some(&loc), &v),
+                    UniformData::Vector4(v) => ctx.uniform4fv_with_f32_array(Some(&loc), &v),
+                    UniformData::Matrix4(m) => ctx.uniform_matrix4fv_with_f32_array(Some(&loc), false, &m),
                     UniformData::Texture(tex) => {
                         ctx.active_texture(GL::TEXTURE0 + tex_inc);
                         tex.bind();

@@ -26,7 +26,7 @@ impl VertexBuffer {
         })
     }
 
-    fn bind(&self, ptr_idx: u32) {
+    fn bind(&mut self, ptr_idx: u32) {
         self.ctx.bind_buffer(GL::ARRAY_BUFFER, Some(&self.buffer));
         self.ctx.vertex_attrib_pointer_with_i32(
             ptr_idx,
@@ -112,9 +112,9 @@ impl Mesh {
         Ok(self)
     }
 
-    pub fn draw(&self, program: &Program) -> Result<(), String> {
+    pub fn draw(&mut self, program: &Program) -> Result<(), String> {
         let mut enabled_attribs = vec![];
-        for (&at, buf) in self.vertex_buffers.iter() {
+        for (&at, buf) in self.vertex_buffers.iter_mut() {
             if let Some(idx) = Some(self.ctx.get_attrib_location(&program.program, at))
                 .filter(|idx| *idx >= 0)
                 .map(|idx| idx as u32) {
