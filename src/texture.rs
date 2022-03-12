@@ -20,6 +20,8 @@ impl Viewport {
         }
     }
 
+    pub fn dimensions(&self) -> [f32; 2] { [self.w as f32, self.h as f32] }
+
     pub fn set(&mut self, ctx: &Ctx) {
         ctx.viewport(
             self.x,
@@ -237,6 +239,7 @@ pub trait Framebuffer {
     fn bind(&mut self);
     fn depth_slot(&mut self) -> &mut Self::DepthSlot;
     fn color_slot(&mut self) -> &mut Self::ColorSlot;
+    fn viewport(&self) -> &Viewport;
 }
 
 pub struct EmptyFramebuffer {
@@ -245,11 +248,11 @@ pub struct EmptyFramebuffer {
 }
 
 impl EmptyFramebuffer {
-    pub fn new(ctx: &Ctx, viewport: Viewport) -> Result<Self, String> {
-         Ok(Self {
+    pub fn new(ctx: &Ctx, viewport: Viewport) -> Self {
+         Self {
              ctx: ctx.clone(),
              viewport,
-         })
+         }
     }
 
     fn bind(&mut self) {
@@ -314,6 +317,8 @@ impl Framebuffer for EmptyFramebuffer {
     fn bind(&mut self) {
         self.bind()
     }
+
+    fn viewport(&self) -> &Viewport { &self.viewport }
 }
 
 pub struct ColorFramebuffer {
@@ -330,6 +335,8 @@ impl Framebuffer for ColorFramebuffer {
     fn bind(&mut self) {
         self.fb.bind()
     }
+
+    fn viewport(&self) -> &Viewport { &self.fb.viewport }
 }
 
 pub struct DepthFrameBuffer {
@@ -346,6 +353,8 @@ impl Framebuffer for DepthFrameBuffer {
     fn bind(&mut self) {
         self.fb.bind()
     }
+
+    fn viewport(&self) -> &Viewport { &self.fb.viewport }
 }
 
 impl Drop for FramebufferWithSlot {
