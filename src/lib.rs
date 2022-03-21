@@ -77,7 +77,7 @@ impl Program {
         {
             Ok(shader)
         } else {
-            Err(format!("Failed to compile shader {}", shader_type))
+            Err(format!("Failed to compile shader {:?}", ctx.get_shader_info_log(&shader)))
         }
     }
 }
