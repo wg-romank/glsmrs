@@ -289,6 +289,7 @@ impl FramebufferWithSlot {
             slot: handle,
         };
 
+        result.ctx.bind_texture(GL::TEXTURE_2D, None);
         result.bind();
         result.ctx.framebuffer_texture_2d(
             GL::FRAMEBUFFER,
@@ -302,6 +303,7 @@ impl FramebufferWithSlot {
     }
 
     fn bind(&mut self) {
+        self.ctx.bind_texture(GL::TEXTURE_2D, None);
         self.ctx.bind_framebuffer(GL::FRAMEBUFFER, Some(&self.handle));
         self.viewport.set(&self.ctx);
     }
