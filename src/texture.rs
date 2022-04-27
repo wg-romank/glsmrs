@@ -195,7 +195,8 @@ impl TextureSpec {
 
         Ok(UploadedTexture {
                     ctx: ctx.clone(),
-                    handle
+                    handle,
+                    size: self.dimensions,
             }
         )
     }
@@ -204,11 +205,16 @@ impl TextureSpec {
 pub struct UploadedTexture {
     ctx: Ctx,
     handle: WebGlTexture,
+    size: [u32; 2],
 }
 
 impl UploadedTexture {
     pub fn bind(&mut self) {
         self.ctx.bind_texture(GL::TEXTURE_2D, Some(&self.handle));
+    }
+
+    pub fn sizef32(&self) -> [f32; 2] {
+        [self.size[0] as f32, self.size[1] as f32]
     }
 }
 
