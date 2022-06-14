@@ -1,6 +1,6 @@
 [package]
 name = "glsmrs"
-version = "0.1.1"
+version = "0.2.0"
 authors = ["Roman Kotelnikov <roman.kotelnikov@gmail.com>"]
 edition = "2018"
 description = "Opinionated thin wrapper over WebGL 1.0 API"
