@@ -8,7 +8,9 @@ Primary goals for this library is to support WebGL 1.0 so it is built on top of 
 ## Key concepts
 
 - **Program** - GL program description including vertex shader, fragment shader, attributes and uniforms. Program takes care of compiling shaders, getting attributes / uniforms locations and finally disposing resources once it goes out of scope.
-- **GlState** - container holding references to data that was created / sent to GPU. GlState's main purpose to keep track of various bits in the state machine (array buffer, frame buffer, active texture, etc.) and adjust accordingly. It also implements housekeeping for unused resources.
+- **Mesh** - structure that holds references to data uploaded to GPU, takes care of disposing array / element buffers once it goes out of scope.
+- **Framebuffer** - render target, has depth and color slot, can also be initialized as empty then rendering would go to the screen.
+- **Pipeline** - a primitive for drawing stuff to screen, sole purpose of which is to set GL context configuration and provide `shade` method for drawing.
 
 ## Usage example
 
@@ -17,7 +19,7 @@ Get it from crates.io
 ```toml
 [dependencies]
 # ...
-glsmrs = "0.1.1"
+glsmrs = "0.2.0"
 ```
 
 Import crate
@@ -26,43 +28,56 @@ Import crate
 use glsmrs as gl;
 ```
 
+Create context, `Ctx` is a wrapper that is using `Rc` internally so you can clone it and pass around without worrying too much about lifetimes.
+
+```rust
+let ctx = gl::util::get_ctx("canvas-name", "webgl")?;
+```
+
+Create some mesh, like an RGB triangle
+
+```rust
+let vertices = vec![[0.5, -0.5], [0.0, 0.5], [-0.5, -0.5]];
+let colors = vec![[1., 0., 0.], [0., 1., 0.], [0., 0., 1.]];
+let indices = [0, 1, 2];
+
+let triangle = gl::mesh::Mesh::new(&ctx, &indices)?
+    .with_attribute::<gl::attributes::AttributeVector2>("position", &vertices)?
+    .with_attrubute::<gl::attributes::AttributeVector3>("color", &colors)?;
+```
+
+Define render target
+
+```rust
+let viewport = gl::texture::Viewport::new(720, 480);
+let displayfb = gl::texture::EmptyFramebuffer::new(&ctx, viewport);
+```
+
 Create a program description
 
 ```rust
-gl::Program::new(
+let program = gl::Program::new(
     &ctx,
     include_str!("../shaders/dummy.vert"),
     include_str!("../shaders/dummy.frag"),
-    vec![
-        gl::UniformDescription::new("tex", gl::UniformType::Sampler2D),
-        gl::UniformDescription::new("time", gl::UniformType::Float),
-    ],
-    vec![
-        gl::AttributeDescription::new("position", gl::AttributeType::Vector2),
-        gl::AttributeDescription::new("uv", gl::AttributeType::Vector2),
-    ]
-)
-```
-
-Initialize & prepare state of GLSM
-
-```rust
-let state = gl::GlState::new(&ctx, viewport)
-    .vertex_buffer("position", vb)?
-    .vertex_buffer("uv", uv)?
-    .texture("tex", Some(tex_byts), size, size)?
-    .element_buffer(eb)?;
+)?;
 ```
 
 Run program on state supplying necessary inputs
 
 ```rust
 let uniforms: HashMap<_, _> = vec![
-    ("tex", gl::UniformData::Texture("tex")),
     ("time", gl::UniformData::Scalar(time as f32)),
 ].into_iter().collect();
 
-state.run(&program, &uniforms)?;
+let pipeline = gl::Pipeline::new(&ctx);
+
+pipeline.shade(
+    &program,
+    uniforms,
+    vec![&mut triangle],
+    &mut displayfb
+)?;
 ```
 
 For example project using this library check out [ https://github.com/wg-romank/wasm-game-of-life ] a tweaked version of original WASM tutorial that runs entierly on GPU.
