@@ -35,42 +35,42 @@ impl Viewport {
 #[derive(Clone, Copy)]
 pub struct ColorFormat(pub u32);
 
-impl Into<i32> for ColorFormat {
-    fn into(self) -> i32 {
-        self.0 as i32
+impl From<ColorFormat> for i32 {
+    fn from(v: ColorFormat) -> Self {
+        v.0 as i32
     }
 }
 
-impl Into<u32> for ColorFormat {
-    fn into(self) -> u32 {
-        self.0
+impl From<ColorFormat> for u32 {
+    fn from(v: ColorFormat) -> Self {
+        v.0
     }
 }
 
 #[derive(Clone, Copy)]
 pub struct InterpolationMin(pub u32);
 
-impl Into<i32> for InterpolationMin {
-    fn into(self) -> i32 {
-        self.0 as i32
+impl From<InterpolationMin> for i32 {
+    fn from(v: InterpolationMin) -> Self {
+        v.0 as i32
     }
 }
 
 #[derive(Clone, Copy)]
 pub struct InterpolationMag(pub u32);
 
-impl Into<i32> for InterpolationMag {
-    fn into(self) -> i32 {
-        self.0 as i32
+impl From<InterpolationMag> for i32 {
+    fn from(v: InterpolationMag) -> Self {
+        v.0 as i32
     }
 }
 
 #[derive(Clone, Copy)]
 pub struct WrapT(pub u32);
 
-impl Into<i32> for WrapT {
-    fn into(self) -> i32 {
-        self.0 as i32
+impl From<WrapT> for i32 {
+    fn from(v: WrapT) -> Self {
+        v.0 as i32
     }
 }
 
@@ -78,18 +78,18 @@ impl Into<i32> for WrapT {
 pub struct WrapS(pub u32);
 
 
-impl Into<i32> for WrapS {
-    fn into(self) -> i32 {
-        self.0 as i32
+impl From<WrapS> for i32 {
+    fn from(v: WrapS) -> Self {
+        v.0 as i32
     }
 }
 
 #[derive(Clone, Copy)]
 pub struct InternalFormat(pub u32);
 
-impl Into<u32> for InternalFormat {
-    fn into(self) -> u32 {
-        self.0
+impl From<InternalFormat> for u32 {
+    fn from(v: InternalFormat) -> Self {
+        v.0 
     }
 }
 
@@ -149,7 +149,7 @@ impl TextureSpec {
     pub fn upload_u8(&self, ctx: &Ctx, data: &[u8]) -> Result<UploadedTexture, String> {
         let arr = js_sys::Uint8Array::new_with_length(data.len() as u32);
         arr.copy_from(data);
-        self.upload(&ctx, InternalFormat(GL::UNSIGNED_BYTE), Some(&arr))
+        self.upload(ctx, InternalFormat(GL::UNSIGNED_BYTE), Some(&arr))
     }
 
     pub fn upload_rgba(&self, ctx: &Ctx, data: &[[f32; 4]]) -> Result<UploadedTexture, String> {
@@ -159,13 +159,13 @@ impl TextureSpec {
     pub fn upload_f32(&self, ctx: &Ctx, data: &[f32]) -> Result<UploadedTexture, String> {
         let arr = js_sys::Float32Array::new_with_length(data.len() as u32);
         arr.copy_from(data);
-        self.upload(&ctx, InternalFormat(GL::FLOAT), Some(&arr))
+        self.upload(ctx, InternalFormat(GL::FLOAT), Some(&arr))
     }
 
     pub fn upload(&self, ctx: &Ctx, internal_format: InternalFormat, data: Option<&js_sys::Object>) -> Result<UploadedTexture, String> {
         let handle = ctx
             .create_texture()
-            .ok_or(format!("Failed to create texture"))?;
+            .ok_or("Failed to create texture")?;
         ctx.bind_texture(GL::TEXTURE_2D, Some(&handle));
         ctx.tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_array_buffer_view(
             GL::TEXTURE_2D,
@@ -229,11 +229,11 @@ enum FramebufferSlot {
     Depth,
 }
 
-impl Into<u32> for FramebufferSlot {
-    fn into(self) -> u32 {
-        match &self {
-            &FramebufferSlot::Color => GL::COLOR_ATTACHMENT0,
-            &FramebufferSlot::Depth => GL::DEPTH_ATTACHMENT,
+impl From<FramebufferSlot> for u32 {
+    fn from(slot: FramebufferSlot) -> Self {
+        match slot {
+            FramebufferSlot::Color => GL::COLOR_ATTACHMENT0,
+            FramebufferSlot::Depth => GL::DEPTH_ATTACHMENT,
         }
     }
 }
@@ -286,7 +286,7 @@ impl FramebufferWithSlot {
     fn from_fb(fb: EmptyFramebuffer, attachment: FramebufferSlot, handle: UploadedTexture) -> Result<FramebufferWithSlot, String> {
          let fb_handle = fb.ctx
              .create_framebuffer()
-             .ok_or(format!("Failed to create frame buffer"))?;
+             .ok_or("Failed to create frame buffer")?;
 
         let mut result = Self {
             ctx: fb.ctx,

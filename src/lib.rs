@@ -1,6 +1,6 @@
 use mesh::Mesh;
 use util::get_ctx;
-use std::{collections::HashMap, rc::Rc, ops::Deref};
+use std::{rc::Rc, ops::Deref};
 use web_sys::*;
 
 pub mod mesh;
@@ -45,10 +45,6 @@ pub struct Program {
 
 impl Program {
     pub fn new(ctx: &Ctx, vertex: &str, fragment: &str) -> Result<Program, String> {
-        Program::new_with_mode(ctx, vertex, fragment)
-    }
-
-    pub fn new_with_mode(ctx: &Ctx, vertex: &str, fragment: &str) -> Result<Program, String> {
         let vertex_id = Program::shader(ctx, GL::VERTEX_SHADER, vertex)?;
         let fragment_id = Program::shader(ctx, GL::FRAGMENT_SHADER, fragment)?;
 
@@ -126,13 +122,16 @@ impl Pipeline {
         s
     }
 
-    pub fn shade<'a, T: Framebuffer>(
+    pub fn shade<'a, T, U>(
         &mut self,
         program: &Program,
-        uni_values: HashMap<&'static str, UniformData>,
-        objects: Vec<&'a mut Mesh>,
+        uni_values: U,
+        objects: Vec<&mut Mesh>,
         output: &'a mut T,
-    ) -> Result<&Self, String> {
+    ) -> Result<&Self, String> where
+        T: Framebuffer,
+        U: IntoIterator<Item = (&'a str, UniformData<'a>)>
+    {
         output.bind();
 
         if self.clear_color.is_some() {
@@ -146,25 +145,27 @@ impl Pipeline {
         }
 
         self.ctx.use_program(Some(&program.program));
-        self.set_uniforms(&program, uni_values)?;
+        self.set_uniforms(program, uni_values)?;
 
-        for obj in objects.into_iter() {
+        for obj in objects {
             obj.draw(program)?;
         }
 
         Ok(self)
     }
 
-    fn set_uniforms(
+    fn set_uniforms<'a, U>(
         &self,
         program: &Program,
-        uniform_values: HashMap<&'static str, UniformData>,
-    ) -> Result<&Self, String> {
+        uniform_values: U,
+    ) -> Result<&Self, String> where
+        U: IntoIterator<Item = (&'a str, UniformData<'a>)>
+    {
         let mut tex_inc = 0;
-        for (name, uni_val) in uniform_values.into_iter() {
+        for (name, uni_val) in uniform_values {
             if let Some(loc) = self.ctx.get_uniform_location(&program.program, name) {
                 match uni_val {
-                    UniformData::Scalar(v) => self.ctx.uniform1f(Some(&loc), v.clone()),
+                    UniformData::Scalar(v) => self.ctx.uniform1f(Some(&loc), v),
                     UniformData::Vector2(v) => self.ctx.uniform2fv_with_f32_array(Some(&loc), &v),
                     UniformData::Vector3(v) => self.ctx.uniform3fv_with_f32_array(Some(&loc), &v),
                     UniformData::Vector4(v) => self.ctx.uniform4fv_with_f32_array(Some(&loc), &v),

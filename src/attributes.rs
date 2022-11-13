@@ -6,10 +6,10 @@ pub enum AttributeType {
 
 impl AttributeType {
     pub fn num_components(&self) -> i32 {
-        match &self {
-            &AttributeType::Scal(_) => 1,
-            &AttributeType::Vec2(_) => 2,
-            &AttributeType::Vec3(_) => 3,
+        match self {
+            AttributeType::Scal(_) => 1,
+            AttributeType::Vec2(_) => 2,
+            AttributeType::Vec3(_) => 3,
         }
     }
 }
