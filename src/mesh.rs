@@ -1,23 +1,22 @@
 use std::collections::HashMap;
 
-use web_sys::WebGlBuffer;
-
-use crate::{GL, Ctx, Program};
+use glow::HasContext;
+use glow as GL;
+use crate::{Ctx, Program};
 use crate::attributes::{Attribute, AttributeType};
 
 struct VertexBuffer {
     ctx: Ctx,
     att: AttributeType,
-    buffer: WebGlBuffer,
+    buffer: GL::Buffer,
 }
 
 impl VertexBuffer {
-    fn new<T: Attribute>(ctx: &Ctx, att: AttributeType, data: &T::Repr) -> Result<Self, String> {
+    unsafe fn new<T: Attribute>(ctx: &Ctx, att: AttributeType, data: &T::Repr) -> Result<Self, String> {
         let buffer = ctx
-            .create_buffer()
-            .ok_or("Failed to create element buffer")?;
-        ctx.bind_buffer(GL::ARRAY_BUFFER, Some(&buffer));
-        ctx.buffer_data_with_u8_array(GL::ARRAY_BUFFER, &T::pack(data), GL::STATIC_DRAW);
+            .create_buffer()?;
+        ctx.bind_buffer(GL::ARRAY_BUFFER, Some(buffer));
+        ctx.buffer_data_u8_slice(GL::ARRAY_BUFFER, &T::pack(data), GL::STATIC_DRAW);
 
         Ok(Self {
             ctx: ctx.clone(),
@@ -26,13 +25,12 @@ impl VertexBuffer {
         })
     }
 
-    fn bind(&mut self, ptr_idx: u32) {
-        self.ctx.bind_buffer(GL::ARRAY_BUFFER, Some(&self.buffer));
-        self.ctx.vertex_attrib_pointer_with_i32(
+    unsafe fn bind(&mut self, ptr_idx: u32) {
+        self.ctx.bind_buffer(GL::ARRAY_BUFFER, Some(self.buffer));
+        self.ctx.vertex_attrib_pointer_i32(
             ptr_idx,
             self.att.num_components(),
             GL::FLOAT,
-            false,
             0,
             0,
         );
@@ -41,23 +39,22 @@ impl VertexBuffer {
 
 impl Drop for VertexBuffer {
     fn drop(&mut self) {
-        self.ctx.delete_buffer(Some(&self.buffer));
+        unsafe { self.ctx.delete_buffer(self.buffer); }
     }
 }
 
 struct ElementBuffer {
     ctx: Ctx,
-    buffer: WebGlBuffer,
+    buffer: GL::Buffer,
     num_elements: usize,
 }
 
 impl ElementBuffer {
-    fn new(ctx: &Ctx, element_size_bytes: usize, data: &[u8]) -> Result<Self, String> {
+    unsafe fn new(ctx: &Ctx, element_size_bytes: usize, data: &[u8]) -> Result<Self, String> {
         let buffer = ctx
-            .create_buffer()
-            .ok_or("Failed to create element buffer")?;
-        ctx.bind_buffer(GL::ELEMENT_ARRAY_BUFFER, Some(&buffer));
-        ctx.buffer_data_with_u8_array(GL::ELEMENT_ARRAY_BUFFER, data, GL::STATIC_DRAW);
+            .create_buffer()?;
+        ctx.bind_buffer(GL::ELEMENT_ARRAY_BUFFER, Some(buffer));
+        ctx.buffer_data_u8_slice(GL::ELEMENT_ARRAY_BUFFER, data, GL::STATIC_DRAW);
         let num_elements = data.len() / element_size_bytes;
 
         Ok(Self {
@@ -67,9 +64,9 @@ impl ElementBuffer {
         })
     }
 
-    fn draw(&self, mode: MeshMode) {
-        self.ctx.bind_buffer(GL::ELEMENT_ARRAY_BUFFER, Some(&self.buffer));
-        self.ctx.draw_elements_with_i32(
+    unsafe fn draw(&self, mode: MeshMode) {
+        self.ctx.bind_buffer(GL::ELEMENT_ARRAY_BUFFER, Some(self.buffer));
+        self.ctx.draw_elements(
             mode.0,
             self.num_elements as i32,
             GL::UNSIGNED_SHORT,
@@ -79,7 +76,7 @@ impl ElementBuffer {
 
 impl Drop for ElementBuffer {
     fn drop(&mut self) {
-        self.ctx.delete_buffer(Some(&self.buffer));
+        unsafe { self.ctx.delete_buffer(self.buffer); }
     }
 }
 
@@ -94,7 +91,7 @@ pub struct Mesh {
 }
 
 impl Mesh {
-    pub fn new(ctx: &Ctx, indices: &[u16]) -> Result<Self, String> {
+    pub unsafe fn new(ctx: &Ctx, indices: &[u16]) -> Result<Self, String> {
         let data = indices.iter().flat_map(|e| e.to_ne_bytes()).collect::<Vec<u8>>();
         let eb = ElementBuffer::new(ctx, 2, &data)?;
 
@@ -106,17 +103,17 @@ impl Mesh {
         })
     }
 
-    pub fn with_attribute<T: Attribute>(mut self, name: &'static str, data: &T::Repr) -> Result<Self, String> {
+    pub unsafe fn with_attribute<T: Attribute>(mut self, name: &'static str, data: &T::Repr) -> Result<Self, String> {
         let vb = VertexBuffer::new::<T>(&self.ctx, T::new(name), data)?;
         self.vertex_buffers.insert(name, vb);
         Ok(self)
     }
 
-    pub fn draw(&mut self, program: &Program) -> Result<(), String> {
+    pub unsafe fn draw(&mut self, program: &Program) -> Result<(), String> {
         let mut enabled_attribs = vec![];
+        self.ctx.bind_vertex_array(None);
         for (&at, buf) in self.vertex_buffers.iter_mut() {
-            if let Some(idx) = Some(self.ctx.get_attrib_location(&program.program, at))
-                .filter(|idx| *idx >= 0)
+            if let Some(idx) = self.ctx.get_attrib_location(program.program, at)
                 .map(|idx| idx as u32) {
                     self.ctx.enable_vertex_attrib_array(idx as u32);
                     enabled_attribs.push(idx);

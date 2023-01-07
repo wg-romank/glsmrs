@@ -1,6 +1,6 @@
-use web_sys::{WebGlFramebuffer, WebGlTexture};
-
-use crate::{GL, Ctx};
+use crate::Ctx;
+use glow as GL;
+use glow::HasContext;
 
 #[derive(Clone, Copy)]
 pub struct Viewport {
@@ -22,7 +22,7 @@ impl Viewport {
 
     pub fn dimensions(&self) -> [f32; 2] { [self.w as f32, self.h as f32] }
 
-    pub fn set(&mut self, ctx: &Ctx) {
+    pub unsafe fn set(&mut self, ctx: &Ctx) {
         ctx.viewport(
             self.x,
             self.y,
@@ -146,28 +146,24 @@ impl TextureSpec {
         self
     }
 
-    pub fn upload_u8(&self, ctx: &Ctx, data: &[u8]) -> Result<UploadedTexture, String> {
-        let arr = js_sys::Uint8Array::new_with_length(data.len() as u32);
-        arr.copy_from(data);
-        self.upload(ctx, InternalFormat(GL::UNSIGNED_BYTE), Some(&arr))
+    pub unsafe fn upload_u8(&self, ctx: &Ctx, data: &[u8]) -> Result<UploadedTexture, String> {
+        self.upload(ctx, InternalFormat(GL::UNSIGNED_BYTE), Some(&data))
     }
 
-    pub fn upload_rgba(&self, ctx: &Ctx, data: &[[f32; 4]]) -> Result<UploadedTexture, String> {
+    pub unsafe fn upload_rgba(&self, ctx: &Ctx, data: &[[f32; 4]]) -> Result<UploadedTexture, String> {
         self.upload_f32(ctx, &data.iter().flat_map(|v| v.to_vec()).collect::<Vec<f32>>())
     }
 
-    pub fn upload_f32(&self, ctx: &Ctx, data: &[f32]) -> Result<UploadedTexture, String> {
-        let arr = js_sys::Float32Array::new_with_length(data.len() as u32);
-        arr.copy_from(data);
+    pub unsafe fn upload_f32(&self, ctx: &Ctx, data: &[f32]) -> Result<UploadedTexture, String> {
+        let arr = data.into_iter().flat_map(|v| v.to_le_bytes()).collect::<Vec<u8>>();
         self.upload(ctx, InternalFormat(GL::FLOAT), Some(&arr))
     }
 
-    pub fn upload(&self, ctx: &Ctx, internal_format: InternalFormat, data: Option<&js_sys::Object>) -> Result<UploadedTexture, String> {
+    pub unsafe fn upload(&self, ctx: &Ctx, internal_format: InternalFormat, data: Option<&[u8]>) -> Result<UploadedTexture, String> {
         let handle = ctx
-            .create_texture()
-            .ok_or("Failed to create texture")?;
-        ctx.bind_texture(GL::TEXTURE_2D, Some(&handle));
-        ctx.tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_array_buffer_view(
+            .create_texture()?;
+        ctx.bind_texture(GL::TEXTURE_2D, Some(handle));
+        ctx.tex_image_2d(
             GL::TEXTURE_2D,
             0,
             self.color_format.into(),
@@ -177,21 +173,20 @@ impl TextureSpec {
             self.color_format.into(),
             internal_format.into(),
             data,
-        )
-        .map_err(|e| format!("Failed to send image data {:?}", e))?;
+        );
 
-        ctx.tex_parameteri(
+        ctx.tex_parameter_i32(
             GL::TEXTURE_2D,
             GL::TEXTURE_MIN_FILTER,
             self.interpolation_min.into(),
         );
-        ctx.tex_parameteri(
+        ctx.tex_parameter_i32(
             GL::TEXTURE_2D,
             GL::TEXTURE_MAG_FILTER,
             self.interpolation_mag.into(),
         );
-        ctx.tex_parameteri(GL::TEXTURE_2D, GL::TEXTURE_WRAP_T, self.wrap_t.into());
-        ctx.tex_parameteri(GL::TEXTURE_2D, GL::TEXTURE_WRAP_S, self.wrap_s.into());
+        ctx.tex_parameter_i32(GL::TEXTURE_2D, GL::TEXTURE_WRAP_T, self.wrap_t.into());
+        ctx.tex_parameter_i32(GL::TEXTURE_2D, GL::TEXTURE_WRAP_S, self.wrap_s.into());
 
         Ok(UploadedTexture {
                     ctx: ctx.clone(),
@@ -204,13 +199,13 @@ impl TextureSpec {
 
 pub struct UploadedTexture {
     ctx: Ctx,
-    handle: WebGlTexture,
+    handle: GL::Texture,
     size: [u32; 2],
 }
 
 impl UploadedTexture {
-    pub fn bind(&mut self) {
-        self.ctx.bind_texture(GL::TEXTURE_2D, Some(&self.handle));
+    pub unsafe fn bind(&mut self) {
+        self.ctx.bind_texture(GL::TEXTURE_2D, Some(self.handle));
     }
 
     pub fn sizef32(&self) -> [f32; 2] {
@@ -220,7 +215,7 @@ impl UploadedTexture {
 
 impl Drop for UploadedTexture {
     fn drop(&mut self) {
-        self.ctx.delete_texture(Some(&self.handle));
+        unsafe { self.ctx.delete_texture(self.handle); }
     }
 }
 
@@ -242,7 +237,7 @@ pub trait Framebuffer {
     type DepthSlot;
     type ColorSlot;
 
-    fn bind(&mut self);
+    unsafe fn bind(&mut self);
     fn depth_slot(&mut self) -> &mut Self::DepthSlot;
     fn color_slot(&mut self) -> &mut Self::ColorSlot;
     fn viewport(&self) -> &Viewport;
@@ -261,16 +256,16 @@ impl EmptyFramebuffer {
          }
     }
 
-    fn bind(&mut self) {
+    unsafe fn bind(&mut self) {
         self.ctx.bind_framebuffer(GL::FRAMEBUFFER, None);
         self.viewport.set(&self.ctx);
     }
 
-    pub fn with_color_slot(self, handle: UploadedTexture) -> Result<ColorFramebuffer, String> {
+    pub unsafe fn with_color_slot(self, handle: UploadedTexture) -> Result<ColorFramebuffer, String> {
         Ok(ColorFramebuffer { fb: FramebufferWithSlot::from_fb(self, FramebufferSlot::Color, handle)? })
     }
 
-    pub fn with_depth_slot(self, handle: UploadedTexture) -> Result<DepthFrameBuffer, String> {
+    pub unsafe fn with_depth_slot(self, handle: UploadedTexture) -> Result<DepthFrameBuffer, String> {
         Ok(DepthFrameBuffer { fb: FramebufferWithSlot::from_fb(self, FramebufferSlot::Depth, handle)? })
     }
 }
@@ -278,15 +273,14 @@ impl EmptyFramebuffer {
 struct FramebufferWithSlot {
     ctx: Ctx,
     viewport: Viewport,
-    handle: WebGlFramebuffer,
+    handle: GL::Framebuffer,
     slot: UploadedTexture,
 }
 
 impl FramebufferWithSlot {
-    fn from_fb(fb: EmptyFramebuffer, attachment: FramebufferSlot, handle: UploadedTexture) -> Result<FramebufferWithSlot, String> {
+    unsafe fn from_fb(fb: EmptyFramebuffer, attachment: FramebufferSlot, handle: UploadedTexture) -> Result<FramebufferWithSlot, String> {
          let fb_handle = fb.ctx
-             .create_framebuffer()
-             .ok_or("Failed to create frame buffer")?;
+             .create_framebuffer()?;
 
         let mut result = Self {
             ctx: fb.ctx,
@@ -301,16 +295,16 @@ impl FramebufferWithSlot {
             GL::FRAMEBUFFER,
             attachment.into(),
             GL::TEXTURE_2D,
-            Some(&result.slot.handle),
+            Some(result.slot.handle),
             0,
         );
 
         Ok(result)
     }
 
-    fn bind(&mut self) {
+    unsafe fn bind(&mut self) {
         self.ctx.bind_texture(GL::TEXTURE_2D, None);
-        self.ctx.bind_framebuffer(GL::FRAMEBUFFER, Some(&self.handle));
+        self.ctx.bind_framebuffer(GL::FRAMEBUFFER, Some(self.handle));
         self.viewport.set(&self.ctx);
     }
 }
@@ -322,7 +316,7 @@ impl Framebuffer for EmptyFramebuffer {
     fn depth_slot(&mut self) -> &mut Self { self }
     fn color_slot(&mut self) -> &mut Self { self }
 
-    fn bind(&mut self) {
+    unsafe fn bind(&mut self) {
         self.bind()
     }
 
@@ -340,7 +334,7 @@ impl Framebuffer for ColorFramebuffer {
     fn depth_slot(&mut self) -> &mut Self::DepthSlot { self }
     fn color_slot(&mut self) -> &mut Self::ColorSlot { &mut self.fb.slot }
 
-    fn bind(&mut self) {
+    unsafe fn bind(&mut self) {
         self.fb.bind()
     }
 
@@ -358,7 +352,7 @@ impl Framebuffer for DepthFrameBuffer {
     fn depth_slot(&mut self) -> &mut Self::DepthSlot { &mut self.fb.slot }
     fn color_slot(&mut self) -> &mut Self::ColorSlot { self }
 
-    fn bind(&mut self) {
+    unsafe fn bind(&mut self) {
         self.fb.bind()
     }
 
@@ -367,6 +361,6 @@ impl Framebuffer for DepthFrameBuffer {
 
 impl Drop for FramebufferWithSlot {
     fn drop(&mut self) {
-        self.ctx.delete_framebuffer(Some(&self.handle));
+        unsafe { self.ctx.delete_framebuffer(self.handle); }
     }
 }

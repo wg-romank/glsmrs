@@ -1,7 +1,9 @@
 use mesh::Mesh;
-use util::get_ctx;
-use std::{rc::Rc, ops::Deref};
-use web_sys::*;
+use std::sync::Arc;
+use std::ops::Deref;
+use glow::Context;
+use glow::HasContext;
+use glow as GL;
 
 pub mod mesh;
 pub mod texture;
@@ -11,47 +13,49 @@ pub mod attributes;
 use crate::texture::*;
 
 #[derive(Clone)]
-pub struct Ctx(Rc<WebGlRenderingContext>);
+pub struct Ctx(Arc<Context>);
 
 impl Ctx {
-    pub fn from(canvas_name: &str) -> Result<Self, String> {
-        let ctx = get_ctx(canvas_name, "webgl").map_err(|e| format!("{:?}", e))?;
-        Self::new(ctx)
+    pub fn fromarc(glow: Arc<Context>) -> Self {
+        Self(glow)
     }
-    pub fn new(ctx: WebGlRenderingContext) -> Result<Self, String> {
-        ctx.get_extension("WEBGL_depth_texture").map_err(|e| format!("no depth textures available {:?}", e))?;
-        ctx.get_extension("OES_texture_float").map_err(|e| format!("no float textures available {:?}", e))?;
-        ctx.enable(GL::DEPTH_TEST);
-        ctx.enable(GL::CULL_FACE);
+    pub fn from(glow: Context) -> Self {
+        // let ctx = get_ctx(canvas_name, "webgl").map_err(|e| format!("{:?}", e))?;
+        Self(Arc::new(glow))
+    }
+    // pub fn new() -> Result<Self, String> {
+    //     ctx.get_extension("WEBGL_depth_texture").map_err(|e| format!("no depth textures available {:?}", e))?;
+    //     ctx.get_extension("OES_texture_float").map_err(|e| format!("no float textures available {:?}", e))?;
+    //     ctx.enable(GL::DEPTH_TEST);
+    //     ctx.enable(GL::CULL_FACE);
+    //     let gl: Context = ctx.into();
 
-        Ok(Self(Rc::new(ctx)))
-    }
+    //     Ok(Self(Rc::new(gl)))
+    // }
 }
 
 impl Deref for Ctx {
-    type Target = WebGlRenderingContext;
+    type Target = Context;
 
-    fn deref(&self) -> &WebGlRenderingContext {
+    fn deref(&self) -> &Context {
         &self.0
     }
 }
 
-pub type GL = WebGlRenderingContext;
-
 pub struct Program {
     ctx: Ctx,
-    program: WebGlProgram,
+    program: glow::Program,
 }
 
 impl Program {
-    pub fn new(ctx: &Ctx, vertex: &str, fragment: &str) -> Result<Program, String> {
+    pub unsafe fn new(ctx: &Ctx, vertex: &str, fragment: &str) -> Result<Program, String> {
         let vertex_id = Program::shader(ctx, GL::VERTEX_SHADER, vertex)?;
         let fragment_id = Program::shader(ctx, GL::FRAGMENT_SHADER, fragment)?;
 
-        let program = ctx.create_program().ok_or("Failed to create program")?;
-        ctx.attach_shader(&program, &vertex_id);
-        ctx.attach_shader(&program, &fragment_id);
-        ctx.link_program(&program);
+        let program = ctx.create_program()?;
+        ctx.attach_shader(program, vertex_id);
+        ctx.attach_shader(program, fragment_id);
+        ctx.link_program(program);
 
         Ok(Program {
             ctx: ctx.clone(),
@@ -59,28 +63,25 @@ impl Program {
         })
     }
 
-    fn shader(ctx: &Ctx, shader_type: u32, source: &str) -> Result<WebGlShader, String> {
+    unsafe fn shader(ctx: &Ctx, shader_type: u32, source: &str) -> Result<glow::Shader, String> {
         let shader = ctx
-            .create_shader(shader_type)
-            .ok_or(format!("Failed to create shader {}", shader_type))?;
-        ctx.shader_source(&shader, source);
-        ctx.compile_shader(&shader);
+            .create_shader(shader_type)?;
+        ctx.shader_source(shader, source);
+        ctx.compile_shader(shader);
 
-        if ctx
-            .get_shader_parameter(&shader, GL::COMPILE_STATUS)
-            .as_bool()
-            .unwrap_or(false)
-        {
+        if ctx.get_shader_compile_status(shader) {
             Ok(shader)
         } else {
-            Err(format!("Failed to compile shader {:?}", ctx.get_shader_info_log(&shader)))
+            Err(format!("Failed to compile shader {:?}", ctx.get_shader_info_log(shader)))
         }
     }
 }
 
 impl Drop for Program {
     fn drop(&mut self) {
-        self.ctx.delete_program(Some(&self.program));
+        unsafe {
+            self.ctx.delete_program(self.program);
+        }
     }
 }
 
@@ -101,7 +102,15 @@ pub struct Pipeline {
 }
 
 impl Pipeline {
-    pub fn new(ctx: &Ctx) -> Self {
+    pub fn newe(ctx: &Ctx) -> Self {
+        Self {
+            ctx: ctx.clone(),
+            clear_color: None,
+            clear_depth: None,
+            clear_stencil: None,
+        }
+    }
+    pub unsafe fn new(ctx: &Ctx) -> Self {
         let s = Self {
             ctx: ctx.clone(),
             clear_color: Some([0., 0., 0., 1.]),
@@ -113,7 +122,7 @@ impl Pipeline {
             ctx.clear_color(col[0], col[1], col[2], col[3]);
         }
         if let Some(d) = s.clear_depth {
-            ctx.clear_depth(d);
+            ctx.clear_depth_f32(d);
         }
         if let Some(s) = s.clear_stencil {
             ctx.clear_stencil(s);
@@ -122,7 +131,7 @@ impl Pipeline {
         s
     }
 
-    pub fn shade<'a, T, U>(
+    pub unsafe fn shade<'a, T, U>(
         &mut self,
         program: &Program,
         uni_values: U,
@@ -144,7 +153,7 @@ impl Pipeline {
             self.ctx.clear(GL::STENCIL_BUFFER_BIT);
         }
 
-        self.ctx.use_program(Some(&program.program));
+        self.ctx.use_program(Some(program.program));
         self.set_uniforms(program, uni_values)?;
 
         for obj in objects {
@@ -154,7 +163,7 @@ impl Pipeline {
         Ok(self)
     }
 
-    fn set_uniforms<'a, U>(
+    unsafe fn set_uniforms<'a, U>(
         &self,
         program: &Program,
         uniform_values: U,
@@ -163,19 +172,19 @@ impl Pipeline {
     {
         let mut tex_inc = 0;
         for (name, uni_val) in uniform_values {
-            if let Some(loc) = self.ctx.get_uniform_location(&program.program, name) {
+            if let Some(loc) = self.ctx.get_uniform_location(program.program, name) {
                 match uni_val {
-                    UniformData::Scalar(v) => self.ctx.uniform1f(Some(&loc), v),
-                    UniformData::Vector2(v) => self.ctx.uniform2fv_with_f32_array(Some(&loc), &v),
-                    UniformData::Vector3(v) => self.ctx.uniform3fv_with_f32_array(Some(&loc), &v),
-                    UniformData::Vector4(v) => self.ctx.uniform4fv_with_f32_array(Some(&loc), &v),
-                    UniformData::Matrix4(m) => self.ctx.uniform_matrix4fv_with_f32_array(Some(&loc), false, &m),
+                    UniformData::Scalar(v) => self.ctx.uniform_1_f32(Some(&loc), v),
+                    UniformData::Vector2(v) => self.ctx.uniform_2_f32_slice(Some(&loc), &v),
+                    UniformData::Vector3(v) => self.ctx.uniform_3_f32_slice(Some(&loc), &v),
+                    UniformData::Vector4(v) => self.ctx.uniform_4_f32_slice(Some(&loc), &v),
+                    UniformData::Matrix4(m) => self.ctx.uniform_matrix_4_f32_slice(Some(&loc), false, &m),
                     UniformData::Texture(tex) => {
                         self.ctx.active_texture(GL::TEXTURE0 + tex_inc);
                         tex.bind();
 
                         // todo: double check on safely disposing uniforms data
-                        self.ctx.uniform1i(Some(&loc), tex_inc as i32);
+                        self.ctx.uniform_1_i32(Some(&loc), tex_inc as i32);
                         tex_inc += 1;
                     }
                 }
